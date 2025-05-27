@@ -1,0 +1,346 @@
+version: '3.8'
+
+x-logging: &prod-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "5"
+    labels: "service"
+
+x-deploy: &default-deploy
+  restart_policy:
+    condition: on-failure
+    delay: 5s
+    max_attempts: 3
+    window: 120s
+  update_config:
+    parallelism: 1
+    delay: 10s
+    failure_action: rollback
+    monitor: 60s
+    max_failure_ratio: 0.3
+
+services:
+  mcp-server:
+    build:
+      context: .
+      target: production
+      args:
+        - BUILDKIT_INLINE_CACHE=1
+    image: hedera-mcp-server:${VERSION:-latest}
+    container_name: hedera-mcp-server-prod
+    ports:
+      - target: 3000
+        published: ${MCP_PORT:-3000}
+        protocol: tcp
+        mode: host
+      - target: 3002
+        published: ${API_PORT:-3002}
+        protocol: tcp
+        mode: host
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - HEDERA_NETWORK=${HEDERA_NETWORK}
+      - HEDERA_OPERATOR_ID=${HEDERA_OPERATOR_ID}
+      - HEDERA_OPERATOR_KEY=${HEDERA_OPERATOR_KEY}
+      - SERVER_ACCOUNT_ID=${SERVER_ACCOUNT_ID}
+      - SERVER_PRIVATE_KEY=${SERVER_PRIVATE_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-100}
+      - CREDITS_CONVERSION_RATE=${CREDITS_CONVERSION_RATE}
+      - CREDITS_MINIMUM_PAYMENT=${CREDITS_MINIMUM_PAYMENT:-1}
+      - CREDITS_MAXIMUM_PAYMENT=${CREDITS_MAXIMUM_PAYMENT:-10000}
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - REDIS_URL=redis://redis:6379
+      - SENTRY_DSN=${SENTRY_DSN}
+      - DD_AGENT_HOST=${DD_AGENT_HOST:-datadog}
+      - DD_TRACE_ENABLED=${DD_TRACE_ENABLED:-true}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ADMIN_PORTAL_URL=http://admin-portal:3001
+    secrets:
+      - hedera_operator_key
+      - server_private_key
+      - db_password
+    volumes:
+      - type: volume
+        source: mcp_data
+        target: /app/data
+        volume:
+          nocopy: true
+    restart: unless-stopped
+    logging: *prod-logging
+    healthcheck:
+      test: ["CMD", "./healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+      labels:
+        - "prometheus.io/scrape=true"
+        - "prometheus.io/port=3000"
+        - "prometheus.io/path=/metrics"
+    depends_on:
+      redis:
+        condition: service_healthy
+        required: false
+    networks:
+      - mcp-prod-network
+
+  admin-portal:
+    build:
+      context: ./admin-portal
+      target: production
+      args:
+        - NEXT_PUBLIC_HEDERA_NETWORK=${HEDERA_NETWORK}
+        - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
+        - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://mcp-server:3002}
+        - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        - BUILDKIT_INLINE_CACHE=1
+    image: hedera-admin-portal:${VERSION:-latest}
+    container_name: hedera-admin-portal-prod
+    ports:
+      - target: 3001
+        published: ${ADMIN_PORT:-3001}
+        protocol: tcp
+        mode: host
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_HEDERA_NETWORK=${HEDERA_NETWORK}
+      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
+      - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
+      - MCP_SERVER_URL=http://mcp-server:3000/stream
+      - SENTRY_DSN=${ADMIN_SENTRY_DSN}
+    secrets:
+      - walletconnect_project_id
+    restart: unless-stopped
+    logging: *prod-logging
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 256M
+          cpus: '0.25'
+    depends_on:
+      mcp-server:
+        condition: service_healthy
+    networks:
+      - mcp-prod-network
+
+  # NOT RECOMMENDED for production - use external database services instead
+  # Examples: Supabase, AWS RDS, Google Cloud SQL, Azure Database, Neon, etc.
+  # Uncomment only if you need a local database for testing
+  # postgres:
+  #   image: postgres:15-alpine
+  #   container_name: hedera-postgres-prod
+  #   environment:
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+  #   profiles:
+  #     - local-db-not-recommended
+
+  redis:
+    image: redis:7-alpine
+    container_name: hedera-redis-prod
+    command: >
+      redis-server
+      --appendonly yes
+      --maxmemory 512mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --requirepass ${REDIS_PASSWORD}
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+    volumes:
+      - redis_prod_data:/data
+    restart: unless-stopped
+    logging: *prod-logging
+    healthcheck:
+      test: ["CMD", "redis-cli", "--pass", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    networks:
+      - mcp-prod-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: hedera-nginx-prod
+    ports:
+      - target: 80
+        published: ${NGINX_HTTP_PORT:-80}
+        protocol: tcp
+        mode: host
+      - target: 443
+        published: ${NGINX_HTTPS_PORT:-443}
+        protocol: tcp
+        mode: host
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_cache:/var/cache/nginx
+      - nginx_logs:/var/log/nginx
+    restart: unless-stopped
+    logging: *prod-logging
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    depends_on:
+      - mcp-server
+      - admin-portal
+    networks:
+      - mcp-prod-network
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: hedera-prometheus-prod
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    restart: unless-stopped
+    logging: *prod-logging
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+    networks:
+      - mcp-prod-network
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: hedera-grafana-prod
+    ports:
+      - "3002:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-piechart-panel
+      - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3002}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+    logging: *prod-logging
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+    networks:
+      - mcp-prod-network
+    profiles:
+      - monitoring
+
+  datadog:
+    image: datadog/agent:latest
+    container_name: hedera-datadog-prod
+    environment:
+      - DD_API_KEY=${DD_API_KEY}
+      - DD_SITE=${DD_SITE:-datadoghq.com}
+      - DD_LOGS_ENABLED=true
+      - DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL=true
+      - DD_CONTAINER_EXCLUDE="name:hedera-datadog-prod"
+      - DD_APM_ENABLED=true
+      - DD_APM_NON_LOCAL_TRAFFIC=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc/:/host/proc/:ro
+      - /sys/fs/cgroup/:/host/sys/fs/cgroup:ro
+      - datadog_data:/opt/datadog-agent/run
+    restart: unless-stopped
+    logging: *prod-logging
+    deploy:
+      <<: *default-deploy
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.25'
+    networks:
+      - mcp-prod-network
+    profiles:
+      - monitoring
+
+
+volumes:
+  mcp_data:
+    driver: local
+  redis_prod_data:
+    driver: local
+  nginx_cache:
+    driver: local
+  nginx_logs:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  datadog_data:
+    driver: local
+
+networks:
+  mcp-prod-network:
+    driver: overlay
+    attachable: true
+    ipam:
+      config:
+        - subnet: 172.30.0.0/16
+
+secrets:
+  hedera_operator_key:
+    external: true
+  server_private_key:
+    external: true
+  db_password:
+    external: true
+  walletconnect_project_id:
+    external: true
