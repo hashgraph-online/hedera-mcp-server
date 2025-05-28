@@ -14,6 +14,11 @@ export const HEDERA_CONFIG = {
   api: {
     baseUrl: process.env.NEXT_PUBLIC_API_BASE_URL || "",
   },
+  mcp: {
+    serverUrl: process.env.NEXT_PUBLIC_MCP_SERVER_URL || "http://localhost:3000/stream",
+    inspectorUrl: process.env.NEXT_PUBLIC_MCP_INSPECTOR_URL || "http://127.0.0.1:6274",
+    inspectorEnabled: process.env.NEXT_PUBLIC_MCP_INSPECTOR_ENABLED === "true",
+  },
 };
 
 export const CREDIT_PACKAGES = [

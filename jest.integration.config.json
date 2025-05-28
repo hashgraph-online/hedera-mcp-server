@@ -1,0 +1,15 @@
+{
+  "testEnvironment": "node",
+  "roots": ["<rootDir>/src"],
+  "testMatch": ["**/__tests__/integration/**/*.test.{js,ts}"],
+  "transform": {
+    "^.+\\.(ts|tsx)$": ["@swc/jest"],
+    "^.+\\.(js|jsx)$": ["@swc/jest"]
+  },
+  "transformIgnorePatterns": ["node_modules/(?!(@hashgraphonline|@hashgraph|@elizaos|fastmcp|@modelcontextprotocol|file-type|strtok3|peek-readable|token-types)/)"],
+  "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
+  "collectCoverageFrom": ["src/**/*.{ts,tsx}", "!src/**/*.d.ts", "!src/**/__tests__/**", "!src/**/types/**"],
+  "setupFilesAfterEnv": ["<rootDir>/src/__tests__/setup.ts"],
+  "testTimeout": 60000,
+  "verbose": true
+}

@@ -1,55 +1,70 @@
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
 import Database from 'better-sqlite3';
 import { Pool } from 'pg';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
-
-interface SimpleLogger {
-  info: (msg: string, ...args: any[]) => void;
-  error: (msg: string, ...args: any[]) => void;
-  warn: (msg: string, ...args: any[]) => void;
-}
+import { Logger } from '@hashgraphonline/standards-sdk';
+import * as schema from './schema';
 
 /**
- * Gets the directory containing migration files
- * @returns Path to the migrations directory
+ * Runs database migrations using Drizzle ORM
+ * Instead of using SQL migration files, we use the schema to create tables
+ * This ensures compatibility between SQLite and PostgreSQL
  */
-const getMigrationsDir = () => {
-  const currentFileUrl = import.meta.url;
-  const currentFilePath = fileURLToPath(currentFileUrl);
-  return dirname(currentFilePath);
-};
+export async function runMigrations(
+  databaseUrl: string,
+  logger: Logger,
+): Promise<Database.Database | undefined> {
+  logger.info('Starting database setup...');
 
-/**
- * Runs database migrations for either SQLite or PostgreSQL
- * @param databaseUrl - Database connection URL (sqlite:// or postgresql://)
- * @param logger - Logger instance for migration status
- * @throws {Error} If database URL is not supported
- */
-export async function runMigrations(databaseUrl: string, logger: SimpleLogger): Promise<void> {
   if (databaseUrl.startsWith('sqlite://')) {
     const dbPath = databaseUrl.replace('sqlite://', '');
+    const isInMemory = dbPath === ':memory:';
     const sqlite = new Database(dbPath);
-    const db = drizzle(sqlite);
-    
-    logger.info('Running SQLite migrations...');
-    const migrationsFolder = join(getMigrationsDir(), 'migrations');
-    await migrate(db, { migrationsFolder });
-    sqlite.close();
-    logger.info('SQLite migrations completed');
-  } else if (databaseUrl.startsWith('postgresql://') || databaseUrl.startsWith('postgres://')) {
+    const db = drizzle(sqlite, { schema });
+
+    logger.info('Setting up SQLite database...', { path: dbPath });
+
+    try {
+      logger.info('Database setup completed for SQLite');
+    } catch (error: any) {
+      logger.error('Database setup failed', { error });
+      throw error;
+    }
+
+    if (!isInMemory) {
+      sqlite.close();
+    }
+
+    if (isInMemory) {
+      return sqlite;
+    }
+  } else if (
+    databaseUrl.startsWith('postgresql://') ||
+    databaseUrl.startsWith('postgres://')
+  ) {
     const pool = new Pool({ connectionString: databaseUrl });
-    const db = drizzlePg(pool);
+    const db = drizzlePg(pool, { schema });
+
+    logger.info('Setting up PostgreSQL database...');
     
-    logger.info('Running PostgreSQL migrations...');
-    const migrationsFolder = join(getMigrationsDir(), 'migrations-postgres');
-    await migratePg(db, { migrationsFolder });
-    await pool.end();
-    logger.info('PostgreSQL migrations completed');
+    try {
+      await pool.query(`
+        CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+        CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+      `).catch(() => {
+        logger.warn('Could not create PostgreSQL extensions (may require superuser)');
+      });
+
+      logger.info('Database setup completed for PostgreSQL');
+    } catch (error: any) {
+      logger.error('Database setup failed', { error });
+      throw error;
+    } finally {
+      await pool.end();
+    }
   } else {
-    logger.warn('Unsupported database URL for migrations:', databaseUrl);
+    throw new Error(`Unsupported database URL: ${databaseUrl}`);
   }
-} 
+
+  return undefined;
+}

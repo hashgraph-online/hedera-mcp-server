@@ -1,0 +1,115 @@
+{
+  "dashboard": {
+    "title": "Hedera MCP Authentication Dashboard",
+    "uid": "hedera-mcp-auth",
+    "panels": [
+      {
+        "title": "Authentication Success Rate",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(auth_success_total[5m]) / (rate(auth_success_total[5m]) + rate(auth_failures_total[5m])) * 100"
+          }
+        ],
+        "type": "stat",
+        "options": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": 0 },
+              { "color": "yellow", "value": 90 },
+              { "color": "green", "value": 95 }
+            ]
+          }
+        }
+      },
+      {
+        "title": "Active API Keys",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "api_keys_active_total"
+          }
+        ],
+        "type": "stat",
+        "options": {
+          "unit": "short"
+        }
+      },
+      {
+        "title": "Authentication Requests",
+        "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(auth_requests_total[5m])",
+            "legendFormat": "Total Requests"
+          },
+          {
+            "expr": "rate(auth_success_total[5m])",
+            "legendFormat": "Successful"
+          },
+          {
+            "expr": "rate(auth_failures_total[5m])",
+            "legendFormat": "Failed"
+          }
+        ],
+        "type": "timeseries"
+      },
+      {
+        "title": "Rate Limit Violations",
+        "gridPos": { "x": 0, "y": 16, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "rate(rate_limit_exceeded_total[5m])"
+          }
+        ],
+        "type": "timeseries"
+      },
+      {
+        "title": "Anomaly Detections",
+        "gridPos": { "x": 12, "y": 16, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "increase(anomaly_detections_total[1h])"
+          }
+        ],
+        "type": "timeseries"
+      },
+      {
+        "title": "API Key Age Distribution",
+        "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.5, api_key_age_days_bucket)",
+            "legendFormat": "Median"
+          },
+          {
+            "expr": "histogram_quantile(0.95, api_key_age_days_bucket)",
+            "legendFormat": "95th Percentile"
+          }
+        ],
+        "type": "timeseries"
+      },
+      {
+        "title": "Database Query Performance",
+        "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, db_query_duration_seconds_bucket)",
+            "legendFormat": "95th Percentile"
+          }
+        ],
+        "type": "timeseries",
+        "options": {
+          "unit": "s"
+        }
+      }
+    ],
+    "refresh": "10s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    }
+  }
+}

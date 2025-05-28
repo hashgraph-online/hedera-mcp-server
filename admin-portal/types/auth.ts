@@ -11,6 +11,7 @@ export interface AuthState {
   isConnected: boolean;
   user: User | null;
   isLoading: boolean;
+  apiKey?: string | null;
 }
 
 export interface WalletSession {

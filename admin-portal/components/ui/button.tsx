@@ -40,6 +40,16 @@ export interface ButtonProps
   asChild?: boolean;
 }
 
+/**
+ * A versatile button component with multiple style variants and sizes
+ * @param {ButtonProps} props - Button component props
+ * @param {string} props.className - Additional CSS classes to apply
+ * @param {string} props.variant - Visual style variant (default, destructive, outline, secondary, ghost, link, hedera)
+ * @param {string} props.size - Size variant (default, sm, lg, icon)
+ * @param {boolean} props.asChild - Whether to render as a child slot component
+ * @param {React.Ref<HTMLButtonElement>} ref - Forward ref to the button element
+ * @returns {JSX.Element} Styled button component
+ */
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ({ className, variant, size, asChild = false, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";

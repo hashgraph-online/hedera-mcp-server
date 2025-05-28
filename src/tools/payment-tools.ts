@@ -4,10 +4,13 @@ import {
   AccountId,
   TransactionId,
 } from '@hashgraph/sdk';
-import { Logger } from '@hashgraphonline/standards-sdk';
+import { Logger, type NetworkType } from '@hashgraphonline/standards-sdk';
 import { CreditManagerBase } from '../db/credit-manager-base';
 import { HederaMirrorNode } from '@hashgraphonline/standards-sdk';
-import { calculateCreditsForHbar } from '../config/pricing-config';
+import {
+  calculateCreditsForHbar,
+  getHbarToUsdRate,
+} from '../config/pricing-config';
 
 export interface PaymentRequest {
   payerAccountId: string;
@@ -29,18 +32,22 @@ export class PaymentTools {
     private serverAccountId: string,
     private network: 'testnet' | 'mainnet',
     private creditManager: CreditManagerBase,
-    private logger: Logger
+    private logger: Logger,
   ) {
-    this.mirrorNode = new HederaMirrorNode(network, logger);
+    this.mirrorNode = new HederaMirrorNode(
+      network as unknown as NetworkType,
+      logger,
+    );
   }
 
   /**
    * Creates a transfer transaction for HBAR payment to purchase credits
    */
   async createPaymentTransaction(
-    request: PaymentRequest
+    request: PaymentRequest,
   ): Promise<PaymentResponse> {
     try {
+      this.logger.debug('Creating payment transaction', { request });
       const { payerAccountId, amount, memo } = request;
 
       if (amount < 0.001) {
@@ -54,7 +61,7 @@ export class PaymentTools {
       const transaction = new TransferTransaction()
         .addHbarTransfer(
           AccountId.fromString(payerAccountId),
-          payment.negated()
+          payment.negated(),
         )
         .addHbarTransfer(AccountId.fromString(this.serverAccountId), payment)
         .setTransactionMemo(memo || `credits:${payerAccountId}`)
@@ -68,15 +75,20 @@ export class PaymentTools {
 
       const frozenTx = transaction.freeze();
       const transactionBytes = Buffer.from(frozenTx.toBytes()).toString(
-        'base64'
+        'base64',
       );
       const transactionId = frozenTx.transactionId?.toString() || '';
 
-      const expectedCredits = calculateCreditsForHbar(amount);
+      const networkType = this.network === 'testnet' ? NetworkType.TESTNET : NetworkType.MAINNET;
+      this.logger.debug('Getting HBAR to USD rate', { networkType });
+      const hbarToUsdRate = await getHbarToUsdRate(networkType);
+      const expectedCredits = calculateCreditsForHbar(amount, hbarToUsdRate);
 
+      this.logger.debug('Processing HBAR payment', { transactionId, payerAccountId, amount });
       await this.creditManager.processHbarPayment({
         transactionId,
         payerAccountId,
+        targetAccountId: this.serverAccountId,
         hbarAmount: amount,
         creditsAllocated: 0,
         status: 'pending',
@@ -164,7 +176,7 @@ export class PaymentTools {
       });
 
       const serverTransfer = transaction.transfers?.find(
-        (t) => t.account === this.serverAccountId && t.amount > 0
+        t => t.account === this.serverAccountId && t.amount > 0,
       );
 
       if (!serverTransfer) {
@@ -177,8 +189,7 @@ export class PaymentTools {
       }
 
       const payerTransfer = transaction.transfers?.find(
-        (t) =>
-          t.amount < 0 && Math.abs(t.amount) >= serverTransfer.amount * 0.99
+        t => t.amount < 0 && Math.abs(t.amount) >= serverTransfer.amount * 0.99,
       );
 
       if (!payerTransfer) {
@@ -191,9 +202,14 @@ export class PaymentTools {
       }
 
       const hbarAmount = serverTransfer.amount / 100000000;
-      const creditsToAllocate = calculateCreditsForHbar(hbarAmount);
+      const networkType = this.network as unknown as NetworkType;
+      const hbarToUsdRate = await getHbarToUsdRate(networkType);
+      const creditsToAllocate = calculateCreditsForHbar(
+        hbarAmount,
+        hbarToUsdRate,
+      );
 
-      await this.creditManager.processHbarPayment({
+      const processed = await this.creditManager.processHbarPayment({
         transactionId,
         payerAccountId: payerTransfer.account,
         hbarAmount,
@@ -202,14 +218,20 @@ export class PaymentTools {
         timestamp: transaction.consensus_timestamp,
       });
 
-      this.logger.info('Payment verified and processed', {
-        transactionId,
-        payerAccountId: payerTransfer.account,
-        hbarAmount,
-        creditsAllocated: creditsToAllocate,
-      });
+      if (processed) {
+        this.logger.info('Payment verified and processed', {
+          transactionId,
+          payerAccountId: payerTransfer.account,
+          hbarAmount,
+          creditsAllocated: creditsToAllocate,
+        });
+      } else {
+        this.logger.info('Payment already processed', {
+          transactionId,
+        });
+      }
 
-      return true;
+      return processed;
     } catch (error) {
       this.logger.error('Failed to verify payment', { error, transactionId });
       return false;
@@ -231,6 +253,12 @@ export class PaymentTools {
         return { status: 'pending' };
       }
 
+      this.logger.debug('Payment status check', {
+        transactionId,
+        status: payment.status,
+        creditsAllocated: payment.creditsAllocated,
+      });
+
       const result: {
         status: 'pending' | 'completed' | 'failed';
         credits?: number;
@@ -242,7 +270,7 @@ export class PaymentTools {
           | 'failed',
       };
 
-      if (payment.creditsAllocated > 0) {
+      if (payment.creditsAllocated && payment.creditsAllocated > 0) {
         result.credits = payment.creditsAllocated;
       }
 
@@ -261,6 +289,90 @@ export class PaymentTools {
   }
 
   /**
+   * Gets pricing configuration including operation costs and tiers
+   */
+  async getPricingConfiguration(): Promise<{
+    operations: Record<string, number>;
+    currentHbarToUsdRate: number;
+    tiers: Array<{
+      tier: string;
+      minCredits: number;
+      maxCredits: number | null;
+      creditsPerUSD: number;
+      discount: number;
+    }>;
+    modifiers: {
+      bulkDiscount: { threshold: number; discount: number };
+      peakHours: { multiplier: number; hours: number[] };
+      loyaltyTiers: Array<{ threshold: number; discount: number }>;
+    };
+  }> {
+    try {
+      const operationCostsArray = await this.creditManager.getOperationCosts();
+
+      const operations: Record<string, number> = {};
+      operationCostsArray.forEach(op => {
+        operations[op.operationName] = op.baseCost;
+      });
+
+      const networkType = this.network as unknown as NetworkType;
+      const hbarToUsdRate = await getHbarToUsdRate(networkType);
+
+      return {
+        operations,
+        currentHbarToUsdRate: hbarToUsdRate,
+        tiers: [
+          {
+            tier: 'starter',
+            minCredits: 0,
+            maxCredits: 10000,
+            creditsPerUSD: 1000,
+            discount: 0,
+          },
+          {
+            tier: 'growth',
+            minCredits: 10001,
+            maxCredits: 100000,
+            creditsPerUSD: 1111,
+            discount: 10,
+          },
+          {
+            tier: 'business',
+            minCredits: 100001,
+            maxCredits: 1000000,
+            creditsPerUSD: 1250,
+            discount: 20,
+          },
+          {
+            tier: 'enterprise',
+            minCredits: 1000001,
+            maxCredits: null,
+            creditsPerUSD: 1429,
+            discount: 30,
+          },
+        ],
+        modifiers: {
+          bulkDiscount: { threshold: 10, discount: 20 },
+          peakHours: {
+            multiplier: 1.2,
+            hours: [14, 15, 16, 17, 18, 19, 20, 21],
+          },
+          loyaltyTiers: [
+            { threshold: 10000, discount: 5 },
+            { threshold: 50000, discount: 10 },
+            { threshold: 100000, discount: 15 },
+            { threshold: 500000, discount: 20 },
+          ],
+        },
+      };
+    } catch (error) {
+      console.error('Full error:', error);
+      this.logger.error('Failed to get pricing configuration', { error });
+      throw error;
+    }
+  }
+
+  /**
    * Updates the status of a payment transaction
    * @param transactionId - The transaction ID to update
    * @param status - The new status
@@ -268,11 +380,11 @@ export class PaymentTools {
    */
   private async updatePaymentStatus(
     transactionId: string,
-    status: 'completed' | 'failed'
+    status: 'completed' | 'failed',
   ): Promise<void> {
     await this.creditManager.updatePaymentStatus(
       transactionId,
-      status.toUpperCase() as 'COMPLETED' | 'FAILED'
+      status.toUpperCase() as 'COMPLETED' | 'FAILED',
     );
   }
 }

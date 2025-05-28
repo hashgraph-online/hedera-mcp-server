@@ -71,6 +71,9 @@ services:
       - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
       - NEXT_PUBLIC_API_BASE_URL=http://mcp-server:3002
       - NEXT_PUBLIC_APP_URL=http://localhost:3001
+      - NEXT_PUBLIC_MCP_SERVER_URL=http://localhost:3000/stream
+      - NEXT_PUBLIC_MCP_INSPECTOR_ENABLED=${NEXT_PUBLIC_MCP_INSPECTOR_ENABLED:-true}
+      - NEXT_PUBLIC_MCP_INSPECTOR_URL=${NEXT_PUBLIC_MCP_INSPECTOR_URL:-http://127.0.0.1:6274}
       - MCP_SERVER_URL=http://mcp-server:3000/stream
     volumes:
       - ./admin-portal/app:/app/app:ro
@@ -93,9 +96,9 @@ services:
   mcp-inspector:
     image: node:22-alpine
     container_name: hedera-mcp-inspector
-    command: sh -c "npm install -g @modelcontextprotocol/inspector && mcp-inspector http://mcp-server:3000/stream"
+    command: sh -c "npm install -g @modelcontextprotocol/inspector && mcp-inspector http://mcp-server:3000/stream --port ${MCP_INSPECTOR_PORT:-6274}"
     ports:
-      - "5173:5173"
+      - "${MCP_INSPECTOR_PORT:-6274}:${MCP_INSPECTOR_PORT:-6274}"
     environment:
       - NODE_ENV=development
     depends_on:
@@ -119,7 +122,6 @@ services:
       - "5432:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
-      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mcpuser} -d ${POSTGRES_DB:-mcpserver_dev}"]
       interval: 5s

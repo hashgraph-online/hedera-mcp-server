@@ -32,11 +32,15 @@ export class CreditService extends CreditManagerBase {
     isPostgres: boolean,
     config: ServerConfig,
     hederaKit: HederaAgentKit,
-    logger: Logger
+    logger: Logger,
   ) {
     super(config, hederaKit, logger);
     this.db = db;
     this.isPostgres = isPostgres;
+  }
+
+  getDatabase(): any {
+    return this.db;
   }
 
   async initialize(): Promise<void> {
@@ -47,22 +51,25 @@ export class CreditService extends CreditManagerBase {
         ? schema.pgOperationCosts
         : schema.sqliteOperationCosts;
 
-      const operations = DEFAULT_PRICING_CONFIG.operations.map(op => ({
-        operationName: op.operationName,
-        baseCost: this.isPostgres ? op.baseCost.toString() : op.baseCost,
-        description: op.description,
-        active: true,
-      }));
+      const operations = DEFAULT_PRICING_CONFIG.operations.map(op => {
+        const baseCostInCredits = op.baseCostUSD * DEFAULT_PRICING_CONFIG.baseCreditsPerUSD;
+        return {
+          operationName: op.operationName,
+          baseCost: this.isPostgres ? baseCostInCredits.toString() : baseCostInCredits,
+          description: op.description,
+          active: true,
+        };
+      });
 
       for (const op of operations) {
-        await this.db
-          .insert(operationCosts)
-          .values(op)
-          .onConflictDoNothing();
+        await this.db.insert(operationCosts).values(op).onConflictDoNothing();
       }
 
-      this.logger.info(`Initialized ${operations.length} operation costs from pricing config`);
+      this.logger.info(
+        `Initialized ${operations.length} operation costs from pricing config`,
+      );
     } catch (error) {
+      console.error('Full error:', error);
       this.logger.error('Failed to initialize Credit Service', { error });
       throw error;
     }
@@ -112,7 +119,7 @@ export class CreditService extends CreditManagerBase {
 
   async getCreditHistory(
     accountId: string,
-    limit = 100
+    limit = 100,
   ): Promise<CreditTransaction[]> {
     const creditTransactions = this.isPostgres
       ? schema.pgCreditTransactions
@@ -155,7 +162,7 @@ export class CreditService extends CreditManagerBase {
   }
 
   async recordCreditTransaction(
-    transaction: Omit<CreditTransaction, 'createdAt'>
+    transaction: CreditTransaction,
   ): Promise<void> {
     await this.ensureUserAccount(transaction.accountId);
 
@@ -166,12 +173,22 @@ export class CreditService extends CreditManagerBase {
       await this.db.transaction(async (tx: any) => {
         await tx.insert(creditTransactions).values({
           accountId: transaction.accountId,
+          toolName: transaction.relatedOperation || 'system',
+          operationalMode: 'credit_management',
+          creditsDeducted:
+            transaction.transactionType === 'consumption'
+              ? Math.abs(transaction.amount)
+              : 0,
+          creditsRefunded:
+            transaction.transactionType === 'refund' ? transaction.amount : 0,
+          transactionStatus: 'completed',
           transactionType: transaction.transactionType,
           amount: transaction.amount,
           balanceAfter: transaction.balanceAfter,
           description: transaction.description,
           relatedOperation: transaction.relatedOperation,
           hbarPaymentId: transaction.hbarPaymentId,
+          createdAt: transaction.createdAt,
         });
         const balanceUpdate =
           transaction.transactionType === 'consumption' ||
@@ -203,12 +220,22 @@ export class CreditService extends CreditManagerBase {
       tx.insert(creditTransactions)
         .values({
           accountId: transaction.accountId,
+          toolName: transaction.relatedOperation || 'system',
+          operationalMode: 'credit_management',
+          creditsDeducted:
+            transaction.transactionType === 'consumption'
+              ? Math.abs(transaction.amount)
+              : 0,
+          creditsRefunded:
+            transaction.transactionType === 'refund' ? transaction.amount : 0,
+          transactionStatus: 'completed',
           transactionType: transaction.transactionType,
           amount: transaction.amount,
           balanceAfter: transaction.balanceAfter,
           description: transaction.description,
           relatedOperation: transaction.relatedOperation,
           hbarPaymentId: transaction.hbarPaymentId,
+          createdAt: transaction.createdAt,
         })
         .run();
       const existingBalance = tx
@@ -270,27 +297,44 @@ export class CreditService extends CreditManagerBase {
       : schema.sqliteHbarPayments;
 
     try {
-      const result = await this.db
-        .insert(hbarPayments)
-        .values({
-          transactionId: payment.transactionId,
-          payerAccountId: payment.payerAccountId,
-          targetAccountId: payment.targetAccountId,
-          hbarAmount: payment.hbarAmount,
-          creditsAllocated: payment.creditsAllocated,
-          memo: payment.memo,
-          status: payment.status,
-        })
-        .returning({ id: hbarPayments.id });
-
-      return result[0].id;
+      if (this.isPostgres) {
+        const result = await this.db
+          .insert(hbarPayments)
+          .values({
+            transactionId: payment.transactionId,
+            payerAccountId: payment.payerAccountId,
+            targetAccountId: payment.targetAccountId,
+            hbarAmount: payment.hbarAmount,
+            creditsAllocated: payment.creditsAllocated,
+            conversionRate: payment.conversionRate || 1000,
+            memo: payment.memo,
+            status: payment.status,
+          })
+          .returning({ id: hbarPayments.id });
+        return result[0].id;
+      } else {
+        const result = this.db
+          .insert(hbarPayments)
+          .values({
+            transactionId: payment.transactionId,
+            payerAccountId: payment.payerAccountId,
+            targetAccountId: payment.targetAccountId,
+            hbarAmount: payment.hbarAmount,
+            creditsAllocated: payment.creditsAllocated,
+            conversionRate: payment.conversionRate || 1000,
+            memo: payment.memo,
+            status: payment.status,
+          })
+          .run();
+        return (result as any).lastInsertRowid as number;
+      }
     } catch (error: any) {
       if (error.code === 'SQLITE_CONSTRAINT_UNIQUE' || error.code === '23505') {
         this.logger.warn('Payment already exists', {
           transactionId: payment.transactionId,
         });
         const existing = await this.getHbarPaymentByTransactionId(
-          payment.transactionId
+          payment.transactionId,
         );
         return existing ? 0 : -1;
       }
@@ -306,7 +350,7 @@ export class CreditService extends CreditManagerBase {
    */
   async updateHbarPaymentStatus(
     transactionId: string,
-    status: HbarPayment['status']
+    status: HbarPayment['status'],
   ): Promise<void> {
     const hbarPayments = this.isPostgres
       ? schema.pgHbarPayments
@@ -329,8 +373,8 @@ export class CreditService extends CreditManagerBase {
       .where(
         or(
           eq(hbarPayments.status, 'pending'),
-          eq(hbarPayments.status, 'PENDING')
-        )
+          eq(hbarPayments.status, 'PENDING'),
+        ),
       );
 
     return rows.map((row: any) => ({
@@ -346,7 +390,7 @@ export class CreditService extends CreditManagerBase {
   }
 
   async getHbarPaymentByTransactionId(
-    transactionId: string
+    transactionId: string,
   ): Promise<HbarPayment | null> {
     const hbarPayments = this.isPostgres
       ? schema.pgHbarPayments
@@ -375,7 +419,7 @@ export class CreditService extends CreditManagerBase {
 
   async recordHbarPaymentWithCredits(
     payment: HbarPayment,
-    creditTransaction: Omit<CreditTransaction, 'createdAt'>
+    creditTransaction: CreditTransaction,
   ): Promise<void> {
     if (this.isPostgres) {
       await this.db.transaction(async (tx: any) => {
@@ -388,12 +432,16 @@ export class CreditService extends CreditManagerBase {
             targetAccountId: payment.targetAccountId,
             hbarAmount: payment.hbarAmount,
             creditsAllocated: payment.creditsAllocated,
+            conversionRate: payment.conversionRate || 1000,
             memo: payment.memo,
             status: payment.status,
           })
           .onConflictDoUpdate({
             target: hbarPayments.transactionId,
-            set: { status: payment.status },
+            set: {
+              status: payment.status,
+              creditsAllocated: payment.creditsAllocated,
+            },
           });
         if (payment.creditsAllocated > 0 && creditTransaction.amount > 0) {
           await this.recordCreditTransaction(creditTransaction);
@@ -410,7 +458,10 @@ export class CreditService extends CreditManagerBase {
 
       if (existing) {
         tx.update(hbarPayments)
-          .set({ status: payment.status })
+          .set({
+            status: payment.status,
+            creditsAllocated: payment.creditsAllocated,
+          })
           .where(eq(hbarPayments.transactionId, payment.transactionId))
           .run();
       } else {
@@ -421,6 +472,7 @@ export class CreditService extends CreditManagerBase {
             targetAccountId: payment.targetAccountId,
             hbarAmount: payment.hbarAmount,
             creditsAllocated: payment.creditsAllocated,
+            conversionRate: payment.conversionRate || 1000,
             memo: payment.memo,
             status: payment.status,
           })
@@ -438,7 +490,7 @@ export class CreditService extends CreditManagerBase {
 
   async updatePaymentStatus(
     transactionId: string,
-    status: HbarPayment['status']
+    status: HbarPayment['status'],
   ): Promise<void> {
     return this.updateHbarPaymentStatus(transactionId, status);
   }

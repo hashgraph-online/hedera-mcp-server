@@ -47,7 +47,6 @@ COPY --from=builder --chown=nodejs:nodejs /app/drizzle*.config.ts ./
 
 # Copy migration files
 COPY --chown=nodejs:nodejs src/db/migrations ./src/db/migrations
-COPY --chown=nodejs:nodejs src/db/migrations-postgres ./src/db/migrations-postgres
 
 # Copy health check script
 COPY --chown=nodejs:nodejs docker/healthcheck.sh ./healthcheck.sh

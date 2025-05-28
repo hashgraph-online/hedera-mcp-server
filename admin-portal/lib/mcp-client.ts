@@ -16,20 +16,34 @@ export class MCPClient {
   private client: Client | null = null;
   private isConnected: boolean = false;
   private logger = new Logger({ module: 'MCPClient' });
+  private apiKey: string | null = null;
 
   constructor(
     private serverUrl: string = process.env.NEXT_PUBLIC_MCP_SERVER_URL ||
-      'http://localhost:3000/stream'
+      'http://localhost:3000/stream',
   ) {
     this.logger.info('MCPClient initialized', {
       serverUrl: this.serverUrl,
       envUrl: process.env.NEXT_PUBLIC_MCP_SERVER_URL,
-      isSSR: typeof window === 'undefined'
+      isSSR: typeof window === 'undefined',
     });
   }
 
   /**
-   * Connects to the MCP server
+   * Set the API key for authentication
+   * @param {string} apiKey - The API key to use for authentication
+   * @returns {void}
+   */
+  setApiKey(apiKey: string): void {
+    this.apiKey = apiKey;
+    if (this.isConnected) {
+      this.disconnect();
+    }
+  }
+
+  /**
+   * Connects to the MCP server using streaming HTTP transport
+   * @returns {Promise<void>} Promise that resolves when connected
    */
   async connect(): Promise<void> {
     if (this.isConnected && this.client) {
@@ -37,14 +51,28 @@ export class MCPClient {
     }
 
     try {
-      this.logger.debug('Creating transport', { url: this.serverUrl });
+      this.logger.debug('Creating transport', {
+        url: this.serverUrl,
+        hasApiKey: !!this.apiKey,
+      });
+
+      const requestInit: RequestInit = {};
+      if (this.apiKey) {
+        requestInit.headers = {
+          Authorization: `Bearer ${this.apiKey}`,
+        };
+      }
+
       const transport = new StreamableHTTPClientTransport(
-        new URL(this.serverUrl)
+        new URL(this.serverUrl),
+        {
+          requestInit,
+        },
       );
 
       if (transport.onmessage) {
         const originalOnMessage = transport.onmessage;
-        transport.onmessage = (msg) => {
+        transport.onmessage = msg => {
           this.logger.debug('Transport message received', { message: msg });
           originalOnMessage(msg);
         };
@@ -52,7 +80,7 @@ export class MCPClient {
 
       if (transport.onerror) {
         const originalOnError = transport.onerror;
-        transport.onerror = (err) => {
+        transport.onerror = err => {
           this.logger.error('Transport error', { error: err });
           originalOnError(err);
         };
@@ -65,7 +93,7 @@ export class MCPClient {
         },
         {
           capabilities: {},
-        }
+        },
       );
 
       await this.client.connect(transport);
@@ -77,7 +105,7 @@ export class MCPClient {
         error,
         message: error instanceof Error ? error.message : 'Unknown error',
         serverUrl: this.serverUrl,
-        transportType: 'StreamableHTTPClientTransport'
+        transportType: 'StreamableHTTPClientTransport',
       });
       this.isConnected = false;
       this.client = null;
@@ -87,10 +115,13 @@ export class MCPClient {
 
   /**
    * Calls a tool on the MCP server
+   * @param {string} toolName - The name of the tool to call
+   * @param {Record<string, unknown>} args - Arguments to pass to the tool
+   * @returns {Promise<T>} The tool result
    */
   async callTool<T = unknown>(
     toolName: string,
-    args: Record<string, unknown> = {}
+    args: Record<string, unknown> = {},
   ): Promise<T> {
     this.logger.debug('Calling MCP tool', { toolName, args });
 
@@ -100,6 +131,13 @@ export class MCPClient {
     }
 
     try {
+      this.logger.debug('Attempting tool call', {
+        toolName,
+        isConnected: this.isConnected,
+        hasClient: !!this.client,
+        hasApiKey: !!this.apiKey,
+      });
+
       const result = (await this.client!.callTool({
         name: toolName,
         arguments: args,
@@ -108,16 +146,16 @@ export class MCPClient {
       this.logger.debug('Tool result received', { toolName, result });
 
       if (result.content && result.content.length > 0) {
-        const textContent = result.content.find((c) => c.type === 'text');
+        const textContent = result.content.find(c => c.type === 'text');
         if (textContent) {
           try {
             const parsed = JSON.parse(textContent.text) as T;
             this.logger.debug('Tool result parsed', { toolName, parsed });
             return parsed;
           } catch {
-            this.logger.debug('Tool returning raw text', { 
-              toolName, 
-              text: textContent.text 
+            this.logger.debug('Tool returning raw text', {
+              toolName,
+              text: textContent.text,
             });
             return textContent.text as T;
           }
@@ -128,12 +166,54 @@ export class MCPClient {
       return result as T;
     } catch (error) {
       this.logger.error('Failed to call tool', { toolName, error });
+
+      if (error instanceof Error && error.message.includes('Not connected')) {
+        this.logger.warn('Connection lost, attempting to reconnect and retry');
+        this.isConnected = false;
+        this.client = null;
+
+        try {
+          await this.connect();
+          const result = (await this.client!.callTool({
+            name: toolName,
+            arguments: args,
+          })) as MCPToolResult;
+
+          this.logger.debug('Tool result received after reconnect', {
+            toolName,
+            result,
+          });
+
+          if (result.content && result.content.length > 0) {
+            const textContent = result.content.find(c => c.type === 'text');
+            if (textContent) {
+              try {
+                const parsed = JSON.parse(textContent.text) as T;
+                return parsed;
+              } catch {
+                return textContent.text as T;
+              }
+            }
+          }
+
+          return result as T;
+        } catch (retryError) {
+          this.logger.error('Failed to call tool after reconnect', {
+            toolName,
+            error: retryError,
+          });
+          throw retryError;
+        }
+      }
+
       throw error;
     }
   }
 
   /**
    * Gets credit balance for an account
+   * @param {string} accountId - The Hedera account ID
+   * @returns {Promise<{current: number, totalPurchased: number, totalConsumed: number}>} The credit balance information
    */
   async getCreditBalance(accountId: string): Promise<{
     current: number;
@@ -154,11 +234,15 @@ export class MCPClient {
 
   /**
    * Creates a payment transaction for purchasing credits
+   * @param {string} payerAccountId - The payer's Hedera account ID
+   * @param {number} amount - The amount of HBAR to pay
+   * @param {string} memo - Optional transaction memo
+   * @returns {Promise<object>} Transaction details including bytes and ID
    */
   async createPaymentTransaction(
     payerAccountId: string,
     amount: number,
-    memo?: string
+    memo?: string,
   ): Promise<{
     transaction_bytes: string;
     transaction_id: string;
@@ -166,15 +250,31 @@ export class MCPClient {
     expected_credits: number;
     server_account_id: string;
   }> {
-    return await this.callTool('create_payment_transaction', {
+    const result = await this.callTool<{
+      transaction_bytes: string;
+      transaction_id: string;
+      amount_hbar: number;
+      expected_credits: number;
+      server_account_id: string;
+    }>('purchase_credits', {
       payer_account_id: payerAccountId,
       amount,
       memo,
     });
+
+    this.logger.info('Payment transaction result', {
+      result,
+      hasTransactionBytes: !!result.transaction_bytes,
+      transactionBytesLength: result.transaction_bytes?.length,
+    });
+
+    return result;
   }
 
   /**
    * Verifies a payment transaction and allocates credits
+   * @param {string} transactionId - The transaction ID to verify
+   * @returns {Promise<{success: boolean, status?: string, credits_allocated?: number, message: string}>} Verification result
    */
   async verifyPayment(transactionId: string): Promise<{
     success: boolean;
@@ -189,6 +289,8 @@ export class MCPClient {
 
   /**
    * Checks payment status
+   * @param {string} transactionId - The transaction ID to check
+   * @returns {Promise<{transaction_id: string, status: string, credits_allocated?: number, timestamp?: string}>} Payment status
    */
   async checkPaymentStatus(transactionId: string): Promise<{
     transaction_id: string;
@@ -203,10 +305,13 @@ export class MCPClient {
 
   /**
    * Gets payment history for an account
+   * @param {string} accountId - The Hedera account ID
+   * @param {number} limit - Maximum number of records to return
+   * @returns {Promise<object>} Payment history with transactions
    */
   async getPaymentHistory(
     accountId: string,
-    limit: number = 50
+    limit: number = 50,
   ): Promise<{
     account_id: string;
     total_payments: number;
@@ -226,10 +331,13 @@ export class MCPClient {
 
   /**
    * Gets credit transaction history
+   * @param {string} accountId - The Hedera account ID
+   * @param {number} limit - Maximum number of records to return
+   * @returns {Promise<{transactions: Array<object>, count: number}>} Credit transaction history
    */
   async getCreditHistory(
     accountId: string,
-    limit: number = 20
+    limit: number = 20,
   ): Promise<{
     transactions: Array<{
       accountId: string;
@@ -264,7 +372,16 @@ export class MCPClient {
   }
 
   /**
+   * Gets the current connection status
+   * @returns {boolean} True if connected, false otherwise
+   */
+  get connected(): boolean {
+    return this.isConnected;
+  }
+
+  /**
    * Disconnects from the MCP server
+   * @returns {Promise<void>} Promise that resolves when disconnected
    */
   async disconnect(): Promise<void> {
     if (this.client && this.isConnected) {

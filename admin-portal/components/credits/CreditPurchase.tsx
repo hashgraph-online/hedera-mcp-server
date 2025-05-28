@@ -37,9 +37,10 @@ interface CreditPurchaseProps {}
  */
 export function CreditPurchase({}: CreditPurchaseProps) {
   const logger = new Logger({ module: 'CreditPurchase' });
-  const { user, refreshBalance, sdk } = useAuth();
+  const { user, refreshBalance, sdk, apiKey, authenticate, isConnected } =
+    useAuth();
   const [selectedPackage, setSelectedPackage] = useState<CreditPackage | null>(
-    null
+    null,
   );
   const [customAmount, setCustomAmount] = useState<string>('');
   const [customHbar, setCustomHbar] = useState<string>('');
@@ -52,9 +53,14 @@ export function CreditPurchase({}: CreditPurchaseProps) {
   >('idle');
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(
-    null
+    null,
   );
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
+  /**
+   * Stops the transaction status polling interval
+   * @returns {void}
+   */
   const stopPolling = useCallback(() => {
     if (pollingInterval) {
       clearInterval(pollingInterval);
@@ -62,6 +68,31 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     }
   }, [pollingInterval]);
 
+  /**
+   * Handles MCP authentication for credit purchases
+   * @returns {Promise<void>} Promise that resolves when authentication completes
+   */
+  const handleAuthenticate = async () => {
+    setIsAuthenticating(true);
+    setError(null);
+
+    try {
+      await authenticate();
+    } catch (error) {
+      logger.error('Authentication failed', { error });
+      setError(
+        error instanceof Error ? error.message : 'Authentication failed',
+      );
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  /**
+   * Checks the status of a pending transaction and updates UI state
+   * @param {string} txId - The transaction ID to check
+   * @returns {Promise<void>} Promise that resolves when status check completes
+   */
   const checkTransactionStatus = async (txId: string) => {
     try {
       const mcpClient = getMCPClient();
@@ -85,6 +116,10 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     }
   };
 
+  /**
+   * Checks for any pending payments for the current user
+   * @returns {Promise<void>} Promise that resolves when pending check completes
+   */
   const handleCheckPendingPayments = async () => {
     if (!user) return;
 
@@ -107,13 +142,18 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     } catch (err) {
       logger.error('Error checking pending payments', { error: err });
       setError(
-        'Failed to check pending payments. The server will automatically check every 30 seconds.'
+        'Failed to check pending payments. The server will automatically check every 30 seconds.',
       );
     } finally {
       setIsCheckingPending(false);
     }
   };
 
+  /**
+   * Handles changes to the custom credits input field and calculates required HBAR
+   * @param {string} value - The credits amount entered by the user
+   * @returns {void}
+   */
   const handleCustomCreditsChange = (value: string) => {
     setCustomAmount(value);
     if (value && !isNaN(Number(value))) {
@@ -125,6 +165,11 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     }
   };
 
+  /**
+   * Handles changes to the custom HBAR input field and calculates resulting credits
+   * @param {string} value - The HBAR amount entered by the user
+   * @returns {void}
+   */
   const handleCustomHbarChange = (value: string) => {
     setCustomHbar(value);
     if (value && !isNaN(Number(value))) {
@@ -136,6 +181,10 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     }
   };
 
+  /**
+   * Processes the credit purchase transaction using the selected package or custom amount
+   * @returns {Promise<void>} Promise that resolves when purchase completes
+   */
   const handlePurchase = async () => {
     if ((!selectedPackage && !isCustom) || !user || !sdk) return;
 
@@ -163,24 +212,78 @@ export function CreditPurchase({}: CreditPurchaseProps) {
       }
 
       const mcpClient = getMCPClient();
+
+      if (apiKey) {
+        mcpClient.setApiKey(apiKey);
+      } else {
+        setError('API key not found. Please authenticate first.');
+        setTransactionStatus('failed');
+        setIsPurchasing(false);
+        return;
+      }
+
       await mcpClient.connect();
 
       const paymentData = await mcpClient.createPaymentTransaction(
         user.accountId,
         hbarAmount,
-        `Credits purchase: ${amount}`
+        `Credits purchase: ${amount}`,
       );
+
+      logger.info('Payment data received', {
+        paymentData,
+        hasTransactionBytes: !!paymentData.transaction_bytes,
+        transactionBytesLength: paymentData.transaction_bytes?.length,
+      });
+
+      if (!paymentData.transaction_bytes) {
+        setError('No transaction bytes received from server');
+        setTransactionStatus('failed');
+        setIsPurchasing(false);
+        return;
+      }
 
       const transactionBytes = Buffer.from(
         paymentData.transaction_bytes,
-        'base64'
+        'base64',
       );
+
+      logger.info('Creating transaction from bytes', {
+        bytesLength: transactionBytes.length,
+        firstBytes: transactionBytes.slice(0, 10).toString('hex'),
+      });
+
       const transaction = Transaction.fromBytes(transactionBytes);
 
-      const result = await sdk.executeTransactionWithErrorHandling(
+      logger.info('Transaction created', {
         transaction,
-        true
-      );
+        hasExecuteFunction: typeof transaction.execute === 'function',
+        hasSignFunction: typeof transaction.sign === 'function',
+      });
+
+      let result;
+      try {
+        logger.info('Executing transaction with SDK', {
+          sdkExists: !!sdk,
+          executeMethod: typeof sdk?.executeTransactionWithErrorHandling,
+        });
+
+        result = await sdk.executeTransactionWithErrorHandling(
+          transaction,
+          true,
+        );
+      } catch (executeError) {
+        logger.error('Transaction execution error details', {
+          error: executeError,
+          errorMessage:
+            executeError instanceof Error
+              ? executeError.message
+              : 'Unknown error',
+          errorStack:
+            executeError instanceof Error ? executeError.stack : undefined,
+        });
+        throw executeError;
+      }
 
       if (result.error) {
         setError(result.error);
@@ -217,7 +320,7 @@ export function CreditPurchase({}: CreditPurchaseProps) {
     } catch (err) {
       logger.error('Purchase error', { error: err });
       setError(
-        err instanceof Error ? err.message : 'Failed to complete purchase'
+        err instanceof Error ? err.message : 'Failed to complete purchase',
       );
       setTransactionStatus('failed');
     } finally {
@@ -243,221 +346,263 @@ export function CreditPurchase({}: CreditPurchaseProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-6">
-            {/* Pricing Tiers Info */}
-            <div className="bg-muted/50 rounded-lg p-4">
-              <h4 className="font-medium mb-2">Volume Pricing Tiers</h4>
-              <div className="space-y-1 text-sm text-muted-foreground">
-                {PRICING_TIERS.map((tier) => (
-                  <div key={tier.tier} className="flex justify-between">
-                    <span className="capitalize">{tier.tier}</span>
-                    <span>
-                      {tier.minCredits.toLocaleString()} -{' '}
-                      {tier.maxCredits === Infinity
-                        ? '∞'
-                        : tier.maxCredits.toLocaleString()}{' '}
-                      credits: {(1 / tier.hbarPerCredit).toFixed(0)}{' '}
-                      credits/HBAR
-                      {tier.discountPercentage > 0 && (
-                        <span className="text-green-600 ml-2">
-                          (-{tier.discountPercentage}%)
-                        </span>
-                      )}
-                    </span>
+            {isConnected && !apiKey && (
+              <div className="border border-yellow-200 bg-yellow-50 rounded-lg p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="font-medium text-yellow-800">
+                      Authentication Required
+                    </h4>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      You must authenticate with the MCP server before
+                      purchasing credits.
+                    </p>
                   </div>
-                ))}
+                  <Button
+                    onClick={handleAuthenticate}
+                    disabled={isAuthenticating}
+                    variant="outline"
+                    className="border-yellow-300 hover:bg-yellow-100"
+                  >
+                    {isAuthenticating ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Authenticating...
+                      </>
+                    ) : (
+                      'Authenticate'
+                    )}
+                  </Button>
+                </div>
               </div>
-            </div>
+            )}
 
-            {/* Package Selection */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {CREDIT_PACKAGES.map((pkg) => (
-                <button
-                  key={pkg.amount}
-                  onClick={() => {
-                    setSelectedPackage(pkg);
-                    setIsCustom(false);
-                    setCustomAmount('');
-                    setCustomHbar('');
-                  }}
-                  className={`p-4 rounded-lg border transition-colors text-left ${
-                    selectedPackage === pkg && !isCustom
-                      ? 'border-primary bg-primary/5'
-                      : 'border-border hover:border-primary/50'
-                  }`}
-                  disabled={isPurchasing}
-                >
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-semibold">{pkg.label}</h3>
-                      {pkg.savings !== '0%' && (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
-                          Save {pkg.savings}
+            {(!isConnected || !apiKey) && (
+              <div className="text-center py-8 text-muted-foreground">
+                <p>
+                  {!isConnected
+                    ? 'Please connect your wallet to purchase credits.'
+                    : 'Please authenticate to purchase credits.'}
+                </p>
+              </div>
+            )}
+
+            {isConnected && apiKey && (
+              <div className="space-y-6">
+                <div className="bg-muted/50 rounded-lg p-4">
+                  <h4 className="font-medium mb-2">Volume Pricing Tiers</h4>
+                  <div className="space-y-1 text-sm text-muted-foreground">
+                    {PRICING_TIERS.map(tier => (
+                      <div key={tier.tier} className="flex justify-between">
+                        <span className="capitalize">{tier.tier}</span>
+                        <span>
+                          {tier.minCredits.toLocaleString()} -{' '}
+                          {tier.maxCredits === Infinity
+                            ? '∞'
+                            : tier.maxCredits.toLocaleString()}{' '}
+                          credits: {(1 / tier.hbarPerCredit).toFixed(0)}{' '}
+                          credits/HBAR
+                          {tier.discountPercentage > 0 && (
+                            <span className="text-green-600 ml-2">
+                              (-{tier.discountPercentage}%)
+                            </span>
+                          )}
                         </span>
-                      )}
-                    </div>
-                    <p className="text-2xl font-bold">
-                      {pkg.amount.toLocaleString()} credits
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {pkg.price.toFixed(2)} HBAR
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {(pkg.amount / pkg.price).toFixed(0)} credits/HBAR
-                    </p>
-                  </div>
-                </button>
-              ))}
-            </div>
-
-            {/* Custom Amount */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Calculator className="h-4 w-4" />
-                  Custom Amount
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-credits">Credits</Label>
-                    <Input
-                      id="custom-credits"
-                      type="number"
-                      placeholder="Enter credits"
-                      value={customAmount}
-                      onChange={(e) => {
-                        setIsCustom(true);
-                        setSelectedPackage(null);
-                        handleCustomCreditsChange(e.target.value);
-                      }}
-                      min="1000"
-                      step="100"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Minimum: 1,000 credits
-                    </p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="custom-hbar">HBAR</Label>
-                    <Input
-                      id="custom-hbar"
-                      type="number"
-                      placeholder="Enter HBAR"
-                      value={customHbar}
-                      onChange={(e) => {
-                        setIsCustom(true);
-                        setSelectedPackage(null);
-                        handleCustomHbarChange(e.target.value);
-                      }}
-                      min="10"
-                      step="0.1"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Minimum: 10 HBAR
-                    </p>
+                      </div>
+                    ))}
                   </div>
                 </div>
-                {customAmount && customHbar && (
-                  <div className="mt-4 p-3 bg-muted rounded-md">
-                    <p className="text-sm">
-                      <span className="font-medium">
-                        {Number(customAmount).toLocaleString()}
-                      </span>{' '}
-                      credits for{' '}
-                      <span className="font-medium">
-                        {Number(customHbar).toFixed(4)}
-                      </span>{' '}
-                      HBAR
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {CREDIT_PACKAGES.map(pkg => (
+                    <button
+                      key={pkg.amount}
+                      onClick={() => {
+                        setSelectedPackage(pkg);
+                        setIsCustom(false);
+                        setCustomAmount('');
+                        setCustomHbar('');
+                      }}
+                      className={`p-4 rounded-lg border transition-colors text-left ${
+                        selectedPackage === pkg && !isCustom
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-primary/50'
+                      }`}
+                      disabled={isPurchasing}
+                    >
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-start">
+                          <h3 className="font-semibold">{pkg.label}</h3>
+                          {pkg.savings !== '0%' && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
+                              Save {pkg.savings}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-2xl font-bold">
+                          {pkg.amount.toLocaleString()} credits
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {pkg.price.toFixed(2)} HBAR
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {(pkg.amount / pkg.price).toFixed(0)} credits/HBAR
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <Calculator className="h-4 w-4" />
+                      Custom Amount
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-credits">Credits</Label>
+                        <Input
+                          id="custom-credits"
+                          type="number"
+                          placeholder="Enter credits"
+                          value={customAmount}
+                          onChange={e => {
+                            setIsCustom(true);
+                            setSelectedPackage(null);
+                            handleCustomCreditsChange(e.target.value);
+                          }}
+                          min="1000"
+                          step="100"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Minimum: 1,000 credits
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="custom-hbar">HBAR</Label>
+                        <Input
+                          id="custom-hbar"
+                          type="number"
+                          placeholder="Enter HBAR"
+                          value={customHbar}
+                          onChange={e => {
+                            setIsCustom(true);
+                            setSelectedPackage(null);
+                            handleCustomHbarChange(e.target.value);
+                          }}
+                          min="10"
+                          step="0.1"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Minimum: 10 HBAR
+                        </p>
+                      </div>
+                    </div>
+                    {customAmount && customHbar && (
+                      <div className="mt-4 p-3 bg-muted rounded-md">
+                        <p className="text-sm">
+                          <span className="font-medium">
+                            {Number(customAmount).toLocaleString()}
+                          </span>{' '}
+                          credits for{' '}
+                          <span className="font-medium">
+                            {Number(customHbar).toFixed(4)}
+                          </span>{' '}
+                          HBAR
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Effective rate:{' '}
+                          {(Number(customAmount) / Number(customHbar)).toFixed(
+                            0,
+                          )}{' '}
+                          credits/HBAR
+                          {(() => {
+                            const tier = getTierForAmount(Number(customAmount));
+                            return tier.discountPercentage > 0 ? (
+                              <span className="text-green-600 ml-1">
+                                ({tier.tier} tier: -{tier.discountPercentage}%)
+                              </span>
+                            ) : null;
+                          })()}
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {error && (
+                  <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
+                    <p className="text-sm text-destructive">{error}</p>
+                  </div>
+                )}
+
+                {transactionStatus === 'confirming' && transactionId && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-700">
+                      Waiting for transaction confirmation...
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Effective rate:{' '}
-                      {(Number(customAmount) / Number(customHbar)).toFixed(0)}{' '}
-                      credits/HBAR
-                      {(() => {
-                        const tier = getTierForAmount(Number(customAmount));
-                        return tier.discountPercentage > 0 ? (
-                          <span className="text-green-600 ml-1">
-                            ({tier.tier} tier: -{tier.discountPercentage}%)
-                          </span>
-                        ) : null;
-                      })()}
+                    <p className="text-xs text-blue-600 mt-1">
+                      Transaction ID: {transactionId}
                     </p>
                   </div>
                 )}
-              </CardContent>
-            </Card>
 
-            {/* Status Messages */}
-            {error && (
-              <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-3">
-                <p className="text-sm text-destructive">{error}</p>
-              </div>
-            )}
-
-            {transactionStatus === 'confirming' && transactionId && (
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                <p className="text-sm text-blue-700">
-                  Waiting for transaction confirmation...
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  Transaction ID: {transactionId}
-                </p>
-              </div>
-            )}
-
-            {transactionStatus === 'completed' && (
-              <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                <p className="text-sm text-green-700">
-                  Purchase completed successfully! Credits have been added to
-                  your account.
-                </p>
-              </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex gap-3">
-              <Button
-                onClick={handlePurchase}
-                disabled={
-                  (!selectedPackage && !isCustom) ||
-                  isPurchasing ||
-                  !user ||
-                  !sdk ||
-                  (isCustom && (!customAmount || !customHbar))
-                }
-                className="flex-1"
-              >
-                {isPurchasing ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    Purchase{' '}
-                    {isCustom && customAmount
-                      ? `${Number(customAmount).toLocaleString()} Credits`
-                      : selectedPackage
-                        ? `${selectedPackage.amount.toLocaleString()} Credits`
-                        : 'Credits'}
-                  </>
+                {transactionStatus === 'completed' && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm text-green-700">
+                      Purchase completed successfully! Credits have been added
+                      to your account.
+                    </p>
+                  </div>
                 )}
-              </Button>
 
-              <Button
-                variant="outline"
-                onClick={handleCheckPendingPayments}
-                disabled={isCheckingPending || !user}
-                title="Check for pending payments"
-              >
-                {isCheckingPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handlePurchase}
+                    disabled={
+                      (!selectedPackage && !isCustom) ||
+                      isPurchasing ||
+                      !user ||
+                      !sdk ||
+                      (isCustom && (!customAmount || !customHbar))
+                    }
+                    className="flex-1"
+                  >
+                    {isPurchasing ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Processing...
+                      </>
+                    ) : (
+                      <>
+                        Purchase{' '}
+                        {isCustom && customAmount
+                          ? `${Number(customAmount).toLocaleString()} Credits`
+                          : selectedPackage
+                            ? `${selectedPackage.amount.toLocaleString()} Credits`
+                            : 'Credits'}
+                      </>
+                    )}
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleCheckPendingPayments}
+                    disabled={isCheckingPending || !user}
+                    title="Check for pending payments"
+                  >
+                    {isCheckingPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

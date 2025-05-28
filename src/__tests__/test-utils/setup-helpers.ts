@@ -9,6 +9,8 @@ import { execSync } from 'child_process';
 import { join } from 'path';
 import * as fs from 'fs/promises';
 import { Logger } from '@hashgraphonline/standards-sdk';
+import { calculateCreditsForHbar } from '../../config/pricing-config';
+import { TEST_HBAR_TO_USD_RATE } from './mock-mirror-node';
 
 const TEST_DB_PREFIX = 'test-db';
 
@@ -16,6 +18,7 @@ export interface TestEnvironment {
   creditService: CreditManagerBase;
   config: Partial<ServerConfig>;
   cleanup: () => Promise<void>;
+  _dbConnection?: any;
 }
 
 /**
@@ -24,8 +27,10 @@ export interface TestEnvironment {
 export function createTestConfig(
   overrides?: Partial<ServerConfig>
 ): Partial<ServerConfig> {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(7);
   return {
-    DATABASE_URL: 'sqlite://:memory:',
+    DATABASE_URL: `sqlite://./test-db-${timestamp}-${random}.db`,
     HEDERA_NETWORK:
       (process.env.HEDERA_NETWORK as 'mainnet' | 'testnet') || 'testnet',
     HEDERA_OPERATOR_ID: process.env.HEDERA_OPERATOR_ID || '0.0.999999',
@@ -56,10 +61,22 @@ export async function setupTestDatabase(
   let databaseUrl: string;
   let cleanup: () => Promise<void>;
 
+  let dbConnection: any;
+  
   switch (type) {
     case 'memory':
-      databaseUrl = 'sqlite://:memory:';
-      cleanup = async () => {};
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(7);
+      const memDbPath = join(
+        __dirname,
+        `../../${TEST_DB_PREFIX}-${timestamp}-${random}.sqlite`
+      );
+      databaseUrl = `sqlite://${memDbPath}`;
+      cleanup = async () => {
+        try {
+          await fs.unlink(memDbPath);
+        } catch (error) {}
+      };
       break;
 
     case 'sqlite':
@@ -76,12 +93,10 @@ export async function setupTestDatabase(
       break;
 
     case 'postgres':
-      // For PostgreSQL tests, assume database is already set up
       databaseUrl =
         process.env.TEST_POSTGRES_URL ||
         'postgresql://test:test@localhost:5432/test';
       cleanup = async () => {
-        // Drop all tables in test database
         const testLogger = new Logger({ module: 'test-cleanup' });
         const testSigner = new ServerSigner('0.0.1', 'test-key', 'testnet');
         const testKit = new HederaAgentKit(testSigner);
@@ -96,7 +111,6 @@ export async function setupTestDatabase(
           testLogger
         );
 
-        // Clean up tables
         if (
           'cleanup' in creditService &&
           typeof creditService['cleanup'] === 'function'
@@ -112,7 +126,9 @@ export async function setupTestDatabase(
     DATABASE_URL: databaseUrl,
   });
 
-  // Create HederaAgentKit for testing
+  const { setupTestDatabase } = await import('../test-db-setup');
+  dbConnection = await setupTestDatabase(databaseUrl, logger);
+
   const signer = new ServerSigner(
     testConfig.HEDERA_OPERATOR_ID!,
     testConfig.HEDERA_OPERATOR_KEY!,
@@ -126,7 +142,6 @@ export async function setupTestDatabase(
     logger
   );
 
-  // Add test operations with known costs
   creditService['operationCosts'].set('test-operation', 5);
   creditService['operationCosts'].set('operation-1', 10);
   creditService['operationCosts'].set('operation-2', 15);
@@ -137,10 +152,22 @@ export async function setupTestDatabase(
   creditService['operationCosts'].set('generate_transaction_bytes', 5);
   creditService['operationCosts'].set('schedule_transaction', 10);
 
+  const originalCleanup = cleanup;
+  cleanup = async () => {
+    if (dbConnection && typeof dbConnection.close === 'function') {
+      try {
+        dbConnection.close();
+      } catch (error) {
+      }
+    }
+    await originalCleanup();
+  };
+
   return {
     creditService,
     config: testConfig,
     cleanup,
+    _dbConnection: dbConnection,
   };
 }
 
@@ -176,11 +203,13 @@ export async function createTestAccounts(
 ): Promise<void> {
   for (const account of accounts) {
     if (account.initialBalance && account.initialBalance > 0) {
+      const creditsAllocated = calculateCreditsForHbar(account.initialBalance, TEST_HBAR_TO_USD_RATE);
       await creditService.processHbarPayment({
         transactionId: `init-${account.accountId}-${Date.now()}`,
         payerAccountId: account.accountId,
+        targetAccountId: account.accountId,
         hbarAmount: account.initialBalance,
-        creditsAllocated: Math.floor(account.initialBalance * 1000),
+        creditsAllocated,
         status: 'COMPLETED',
         timestamp: new Date().toISOString(),
       });
@@ -199,7 +228,6 @@ export async function waitForDatabaseReady(
 
   while (Date.now() - startTime < timeoutMs) {
     try {
-      // Try a simple operation to check if DB is ready
       await creditService.getCreditBalance('0.0.test');
       return;
     } catch (error) {

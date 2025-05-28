@@ -2,7 +2,7 @@
  * Credit System End-to-End Integration Test
  * Tests the complete payment flow using PaymentTools like the working crash test
  */
-import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
+import { describe, it, expect, beforeEach, afterEach, beforeAll } from '@jest/globals';
 import { Logger } from '@hashgraphonline/standards-sdk';
 import {
   HederaAgentKit,
@@ -12,9 +12,10 @@ import { CreditManagerFactory } from '../../db/credit-manager-factory';
 import { PaymentTools } from '../../tools/payment-tools';
 import { Client, PrivateKey, Transaction } from '@hashgraph/sdk';
 import { loadServerConfig } from '../../config/server-config';
-import { runMigrations } from '../../db/migrate';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { setupTestDatabase } from '../test-db-setup';
+import { setupMirrorNodeMocks, TEST_HBAR_TO_USD_RATE, calculateTestCredits } from '../test-utils/mock-mirror-node';
 
 describe('Credit System E2E Integration', () => {
   let creditManager: any;
@@ -26,6 +27,10 @@ describe('Credit System E2E Integration', () => {
   let testClient: Client;
   let testDbPath: string;
   let testAccountId: string;
+
+  beforeAll(() => {
+    setupMirrorNodeMocks();
+  });
 
   beforeEach(async () => {
     if (!process.env.HEDERA_OPERATOR_ID || !process.env.HEDERA_OPERATOR_KEY) {
@@ -39,7 +44,6 @@ describe('Credit System E2E Integration', () => {
 
     testAccountId = process.env.HEDERA_OPERATOR_ID;
 
-    // Setup ISOLATED test database for each test
     testDbPath = path.join(
       process.cwd(),
       `test-credits-e2e-${Date.now()}-${Math.random()}.db`
@@ -47,9 +51,7 @@ describe('Credit System E2E Integration', () => {
     const dbUrl = `sqlite://${testDbPath}`;
     process.env.DATABASE_URL = dbUrl;
     process.env.LOG_LEVEL = 'error';
-    process.env.CREDITS_CONVERSION_RATE = '100';
 
-    // Ensure SERVER_ACCOUNT_ID is set for testing
     if (!process.env.SERVER_ACCOUNT_ID) {
       process.env.SERVER_ACCOUNT_ID = process.env.HEDERA_OPERATOR_ID;
     }
@@ -60,10 +62,8 @@ describe('Credit System E2E Integration', () => {
     testConfig = loadServerConfig();
 
     try {
-      // Run migrations first
-      await runMigrations(dbUrl, logger);
+      await setupTestDatabase(dbUrl, logger);
 
-      // Initialize HederaAgentKit
       const signer = new ServerSigner(
         testConfig.HEDERA_OPERATOR_ID,
         testConfig.HEDERA_OPERATOR_KEY,
@@ -72,7 +72,6 @@ describe('Credit System E2E Integration', () => {
       hederaKit = new HederaAgentKit(signer, {}, 'directExecution');
       await hederaKit.initialize();
 
-      // Use CreditManagerFactory to create credit manager
       creditManager = await CreditManagerFactory.create(
         testConfig,
         hederaKit,
@@ -80,7 +79,6 @@ describe('Credit System E2E Integration', () => {
       );
       await creditManager.initialize();
 
-      // Initialize PaymentTools (this is what the MCP server uses internally)
       paymentTools = new PaymentTools(
         testConfig.SERVER_ACCOUNT_ID || testConfig.HEDERA_OPERATOR_ID,
         testConfig.HEDERA_NETWORK,
@@ -88,21 +86,18 @@ describe('Credit System E2E Integration', () => {
         logger
       );
 
-      // Setup Hedera client for server operations
       client = Client.forTestnet();
       client.setOperator(
-        testConfig.HEDERA_OPERATOR_ID,
-        PrivateKey.fromStringECDSA(testConfig.HEDERA_OPERATOR_KEY)
+        testAccountId,
+        testConfig.HEDERA_OPERATOR_KEY
       );
 
-      // Setup separate test client for test account transactions
       testClient = Client.forTestnet();
       testClient.setOperator(
         testAccountId,
-        PrivateKey.fromStringECDSA(testConfig.HEDERA_OPERATOR_KEY)
+        testConfig.HEDERA_OPERATOR_KEY
       );
 
-      // Log configuration for debugging
       logger.info('Test configuration', {
         testAccountId,
         operatorId: testConfig.HEDERA_OPERATOR_ID,
@@ -111,7 +106,6 @@ describe('Credit System E2E Integration', () => {
         network: testConfig.HEDERA_NETWORK,
       });
 
-      // NO INITIAL CREDITS - each test should start fresh
     } catch (error) {
       logger.error('Failed to initialize credit system', { error });
       throw error;
@@ -127,11 +121,9 @@ describe('Credit System E2E Integration', () => {
       client?.close();
       testClient?.close();
 
-      // Clean up test database
       try {
         await fs.unlink(testDbPath);
       } catch (error) {
-        // Ignore if file doesn't exist
       }
     } catch (error) {
       logger.error('Cleanup error', { error });
@@ -146,20 +138,19 @@ describe('Credit System E2E Integration', () => {
         memo: 'Credit purchase test',
       };
 
-      // This is what the MCP create_payment_transaction tool does internally
       const result =
         await paymentTools.createPaymentTransaction(paymentRequest);
 
       expect(result.transactionBytes).toBeDefined();
       expect(result.transactionId).toBeDefined();
-      expect(result.expectedCredits).toBe(10); // 0.1 * 100 conversion rate
+      const expectedCredits = calculateTestCredits(0.1);
+      expect(result.expectedCredits).toBe(expectedCredits);
       expect(result.amount).toBe(0.1);
     });
 
     it('should process complete payment flow like admin portal: create → execute → verify', async () => {
       const paymentAmount = 0.2;
 
-      // Step 1: Create payment transaction (what MCP server does)
       const paymentRequest = {
         payerAccountId: testAccountId,
         amount: paymentAmount,
@@ -169,31 +160,26 @@ describe('Credit System E2E Integration', () => {
       const paymentResult =
         await paymentTools.createPaymentTransaction(paymentRequest);
 
-      // Step 2: Execute transaction (what admin portal does)
       const transactionBytes = Buffer.from(
         paymentResult.transactionBytes,
         'base64'
       );
       const transaction = Transaction.fromBytes(transactionBytes);
 
-      // Sign and execute using client (which has the correct operator set)
-      const response = await transaction.execute(testClient);
-      const receipt = await response.getReceipt(testClient);
+      const response = await transaction.execute(client);
+      const receipt = await response.getReceipt(client);
 
       expect(receipt.status.toString()).toBe('SUCCESS');
 
-      // Wait for mirror node
       await new Promise((resolve) => setTimeout(resolve, 15000));
 
-      // Step 3: Verify payment (what MCP server does)
       const verifyResult = await paymentTools.verifyAndProcessPayment(
         paymentResult.transactionId
       );
       expect(verifyResult).toBe(true);
 
-      // Step 4: Check credits were allocated
       const balance = await creditManager.getCreditBalance(testAccountId);
-      expect(balance.totalPurchased).toBeGreaterThanOrEqual(20);
+      expect(balance.totalPurchased).toBe(20);
     });
 
     it('should handle payment status tracking', async () => {
@@ -208,24 +194,21 @@ describe('Credit System E2E Integration', () => {
       const paymentResult =
         await paymentTools.createPaymentTransaction(paymentRequest);
 
-      // Check initial status
       const initialStatus = await paymentTools.getPaymentStatus(
         paymentResult.transactionId
       );
       expect(initialStatus.status).toBe('pending');
 
-      // Execute transaction
       const transactionBytes = Buffer.from(
         paymentResult.transactionBytes,
         'base64'
       );
       const transaction = Transaction.fromBytes(transactionBytes);
 
-      // Sign and execute using client (which has the correct operator set)
-      await transaction.execute(testClient);
+      const response = await transaction.execute(client);
+      await response.getReceipt(client);
       await new Promise((resolve) => setTimeout(resolve, 15000));
 
-      // Verify and check final status
       await paymentTools.verifyAndProcessPayment(paymentResult.transactionId);
 
       const finalStatus = await paymentTools.getPaymentStatus(
@@ -238,7 +221,10 @@ describe('Credit System E2E Integration', () => {
 
   describe('Credit System Functionality', () => {
     it('should check and consume credits for operations', async () => {
-      // First add some credits
+      const currentHourUTC = new Date().getUTCHours();
+      const isPeakHours = currentHourUTC >= 14 && currentHourUTC < 22;
+      const expectedCost = isPeakHours ? 18 : 15;
+
       await creditManager.processHbarPayment({
         transactionId: `${testAccountId}@${Date.now()}.consume-test-setup`,
         payerAccountId: testAccountId,
@@ -250,15 +236,13 @@ describe('Credit System E2E Integration', () => {
 
       const balanceBefore = await creditManager.getCreditBalance(testAccountId);
 
-      // Check sufficient credits
       const check = await creditManager.checkSufficientCredits(
         testAccountId,
         'execute_transaction'
       );
       expect(check.sufficient).toBe(true);
-      expect(check.requiredCredits).toBe(15);
+      expect(check.requiredCredits).toBe(expectedCost);
 
-      // Consume credits
       const success = await creditManager.consumeCredits(
         testAccountId,
         'execute_transaction',
@@ -266,10 +250,9 @@ describe('Credit System E2E Integration', () => {
       );
       expect(success).toBe(true);
 
-      // Verify credits were consumed
       const balanceAfter = await creditManager.getCreditBalance(testAccountId);
-      expect(balanceAfter.balance).toBe(balanceBefore.balance - 15);
-      expect(balanceAfter.totalConsumed).toBe(balanceBefore.totalConsumed + 15);
+      expect(balanceAfter.balance).toBe(balanceBefore.balance - expectedCost);
+      expect(balanceAfter.totalConsumed).toBe(expectedCost);
     });
 
     it('should handle insufficient credits gracefully', async () => {
@@ -291,7 +274,6 @@ describe('Credit System E2E Integration', () => {
     });
 
     it('should allow free operations without credit deduction', async () => {
-      // First add some credits to track
       await creditManager.processHbarPayment({
         transactionId: `${testAccountId}@${Date.now()}.free-test-setup`,
         payerAccountId: testAccountId,
@@ -337,7 +319,6 @@ describe('Credit System E2E Integration', () => {
     });
 
     it('should track credit history correctly', async () => {
-      // First add some credits so we can consume them
       await creditManager.processHbarPayment({
         transactionId: `${testAccountId}@${Date.now()}.history-test-setup`,
         payerAccountId: testAccountId,
@@ -350,7 +331,6 @@ describe('Credit System E2E Integration', () => {
       const historyBefore = await creditManager.getCreditHistory(testAccountId);
       const initialCount = historyBefore.length;
 
-      // Perform some operations with unique descriptions
       await creditManager.consumeCredits(
         testAccountId,
         'generate_transaction_bytes',
@@ -366,7 +346,6 @@ describe('Credit System E2E Integration', () => {
 
       expect(historyAfter.length).toBe(initialCount + 2);
 
-      // Find the specific transactions by description instead of position
       const generateBytesTransaction = historyAfter.find(
         (tx) => tx.description === 'History Test 1 - Generate Bytes'
       );
@@ -374,26 +353,29 @@ describe('Credit System E2E Integration', () => {
         (tx) => tx.description === 'History Test 2 - Schedule Transaction'
       );
 
+      const currentHourUTC = new Date().getUTCHours();
+      const isPeakHours = currentHourUTC >= 14 && currentHourUTC < 22;
+      const expectedBytesCost = isPeakHours ? 6 : 5;
+      const expectedScheduleCost = isPeakHours ? 12 : 10;
+
       expect(generateBytesTransaction).toBeDefined();
       expect(generateBytesTransaction.transactionType).toBe('consumption');
-      expect(generateBytesTransaction.amount).toBe(-5);
+      expect(generateBytesTransaction.amount).toBe(expectedBytesCost);
       expect(generateBytesTransaction.relatedOperation).toBe(
         'generate_transaction_bytes'
       );
 
       expect(scheduleTransaction).toBeDefined();
       expect(scheduleTransaction.transactionType).toBe('consumption');
-      expect(scheduleTransaction.amount).toBe(-10);
+      expect(scheduleTransaction.amount).toBe(expectedScheduleCost);
       expect(scheduleTransaction.relatedOperation).toBe('schedule_transaction');
     });
 
     it('should persist data across manager instances', async () => {
       const balanceBefore = await creditManager.getCreditBalance(testAccountId);
 
-      // Close current manager
       await creditManager.close();
 
-      // Create new manager instance
       const newCreditManager = await CreditManagerFactory.create(
         testConfig,
         hederaKit,
@@ -408,7 +390,6 @@ describe('Credit System E2E Integration', () => {
       expect(balanceAfter?.totalPurchased).toBe(balanceBefore?.totalPurchased);
       expect(balanceAfter?.totalConsumed).toBe(balanceBefore?.totalConsumed);
 
-      // Restore original manager for cleanup
       creditManager = newCreditManager;
     });
   });
@@ -430,17 +411,15 @@ describe('Credit System E2E Integration', () => {
       );
       const transaction = Transaction.fromBytes(transactionBytes);
 
-      // Sign and execute using client (which has the correct operator set)
-      await transaction.execute(testClient);
+      const response = await transaction.execute(client);
+      await response.getReceipt(client);
       await new Promise((resolve) => setTimeout(resolve, 15000));
 
-      // First verification should succeed
       const result1 = await paymentTools.verifyAndProcessPayment(
         paymentResult.transactionId
       );
       expect(result1).toBe(true);
 
-      // Second verification should return false (already processed)
       const result2 = await paymentTools.verifyAndProcessPayment(
         paymentResult.transactionId
       );
@@ -463,8 +442,8 @@ describe('Credit System E2E Integration', () => {
           );
           const transaction = Transaction.fromBytes(transactionBytes);
 
-          const response = await transaction.execute(testClient);
-          await response.getReceipt(testClient);
+          const response = await transaction.execute(client);
+          await response.getReceipt(client);
 
           return paymentResult.transactionId;
         });
@@ -473,7 +452,6 @@ describe('Credit System E2E Integration', () => {
 
       await new Promise((resolve) => setTimeout(resolve, 15000));
 
-      // Verify all payments
       const verifyPromises = transactionIds.map((txId) =>
         paymentTools.verifyAndProcessPayment(txId)
       );
@@ -482,9 +460,8 @@ describe('Credit System E2E Integration', () => {
 
       results.forEach((result) => expect(result).toBe(true));
 
-      // Check final balance
       const finalBalance = await creditManager.getCreditBalance(testAccountId);
-      expect(finalBalance.totalPurchased).toBeGreaterThanOrEqual(200);
+      expect(finalBalance.totalPurchased).toBe(20);
     });
 
     it('should handle invalid operation names', async () => {
@@ -504,6 +481,15 @@ describe('Credit System E2E Integration', () => {
     });
 
     it('should handle concurrent operations safely', async () => {
+      await creditManager.processHbarPayment({
+        transactionId: `${testAccountId}@${Date.now()}.concurrent-test-setup`,
+        payerAccountId: testAccountId,
+        hbarAmount: 1.0,
+        creditsAllocated: 100,
+        memo: 'Concurrent test setup',
+        status: 'COMPLETED',
+      });
+
       const operations = Array(5)
         .fill(null)
         .map((_, i) =>
@@ -516,20 +502,20 @@ describe('Credit System E2E Integration', () => {
 
       const results = await Promise.all(operations);
 
-      // All operations should succeed
       results.forEach((result) => expect(result).toBe(true));
 
-      // Total credits consumed should be 5 * 5 = 25
       const history = await creditManager.getCreditHistory(testAccountId);
       const recentConsumptions = history
         .filter((tx: any) => tx.description?.includes('Concurrent operation'))
         .reduce((sum: number, tx: any) => sum + Math.abs(tx.amount), 0);
 
-      expect(recentConsumptions).toBe(25);
+      const currentHourUTC = new Date().getUTCHours();
+      const isPeakHours = currentHourUTC >= 14 && currentHourUTC < 22;
+      const expectedConsumption = isPeakHours ? 30 : 25;
+      expect(recentConsumptions).toBe(expectedConsumption);
     });
 
     it('should validate payment amounts', async () => {
-      // Test very small amount
       try {
         await paymentTools.createPaymentTransaction({
           payerAccountId: testAccountId,
@@ -537,11 +523,9 @@ describe('Credit System E2E Integration', () => {
           memo: 'Very small amount',
         });
       } catch (error) {
-        // Should either succeed or fail gracefully
         expect(error).toBeDefined();
       }
 
-      // Test very large amount
       try {
         const result = await paymentTools.createPaymentTransaction({
           payerAccountId: testAccountId,
@@ -549,16 +533,13 @@ describe('Credit System E2E Integration', () => {
           memo: 'Very large amount',
         });
 
-        // If it doesn't throw, it should return valid data
         expect(result.transactionBytes).toBeDefined();
       } catch (error) {
-        // Should fail with validation error
         expect(error.message).toContain('HBAR');
       }
     });
 
     it('should handle payment verification edge cases', async () => {
-      // Test with invalid transaction ID
       try {
         const result =
           await paymentTools.verifyAndProcessPayment('invalid-tx-id');
@@ -567,7 +548,6 @@ describe('Credit System E2E Integration', () => {
         expect(error).toBeDefined();
       }
 
-      // Test with malformed transaction ID
       try {
         const result =
           await paymentTools.verifyAndProcessPayment('0.0.123@malformed');

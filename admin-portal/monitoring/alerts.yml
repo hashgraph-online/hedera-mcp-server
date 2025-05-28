@@ -1,0 +1,57 @@
+groups:
+  - name: authentication
+    interval: 30s
+    rules:
+      - alert: HighAuthFailureRate
+        expr: rate(auth_failures_total[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High authentication failure rate"
+          description: "Authentication failures are above 10 per minute for 5 minutes"
+
+      - alert: AnomalyDetectionTriggered
+        expr: anomaly_detections_total > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Anomaly detection triggered"
+          description: "Suspicious activity detected from account {{ $labels.account_id }}"
+
+      - alert: APIKeyRotationNeeded
+        expr: (time() - api_key_created_timestamp) > 7776000  # 90 days
+        for: 1h
+        labels:
+          severity: info
+        annotations:
+          summary: "API key rotation recommended"
+          description: "API key for account {{ $labels.account_id }} is older than 90 days"
+
+      - alert: RateLimitExceeded
+        expr: rate(rate_limit_exceeded_total[5m]) > 100
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High rate limit violations"
+          description: "Rate limit violations exceed 100 per minute"
+
+      - alert: DatabaseConnectionFailure
+        expr: up{job="postgres"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Database connection lost"
+          description: "Cannot connect to PostgreSQL database"
+
+      - alert: RedisConnectionFailure
+        expr: up{job="redis"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis connection lost"
+          description: "Cannot connect to Redis cache"

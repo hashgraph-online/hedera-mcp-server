@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as net from 'net';
 import fetch from 'node-fetch';
 import { Logger } from '@hashgraphonline/standards-sdk';
+import { PortManager } from '../test-utils/port-manager';
 
 export interface TransportOptions {
   type: 'stdio' | 'http';
@@ -78,7 +79,7 @@ export class MCPTransportClient {
     await this.waitForReady();
   }
   private async startHttpTransport(): Promise<void> {
-    const port = this.options.port || 3000;
+    const port = this.options.port || PortManager.getPort();
     const serverPath = path.join(__dirname, '../../index.ts');
     const env = {
       ...process.env,
@@ -161,7 +162,7 @@ export class MCPTransportClient {
     });
   }
   private async sendHttpRequest(request: MCPMessage): Promise<any> {
-    const port = this.options.port || 3000;
+    const port = this.options.port || PortManager.getPort();
     const response = await fetch(`http://localhost:${port}/mcp`, {
       method: 'POST',
       headers: {

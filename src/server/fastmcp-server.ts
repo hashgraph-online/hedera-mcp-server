@@ -12,12 +12,14 @@ import { CreditManagerFactory } from '../db/credit-manager-factory';
 import type { CreditManagerBase } from '../db/credit-manager-base';
 import { HttpApiServer } from './http-api';
 import { createPaymentTools } from '../tools/mcp-payment-tools';
+import { ApiKeyService } from '../auth/api-key-service';
 
 /**
  * FastMCP server implementation with dual-mode support for traditional MCP clients and HCS-10 agents
  */
 export class HederaMCPServer {
-  private mcp: FastMCP;
+  private mcp: FastMCP<{ accountId: string; permissions: string[] }> | null =
+    null;
   private hederaKit: HederaAgentKit | null = null;
   private conversationalAgent: HederaConversationalAgent | null = null;
   private profileManager: ProfileManager | null = null;
@@ -25,10 +27,11 @@ export class HederaMCPServer {
   private httpApiServer: HttpApiServer | null = null;
   private logger: Logger;
   private isInitialized = false;
+  private apiKeyService: ApiKeyService | null = null;
 
   constructor(
     private config: ServerConfig,
-    logger?: Logger
+    logger?: Logger,
   ) {
     this.logger =
       logger ||
@@ -37,30 +40,26 @@ export class HederaMCPServer {
         module: 'HederaMCPServer',
         prettyPrint: true,
       });
-
-    this.mcp = new FastMCP({
-      name: 'hedera-mcp-server',
-      version: '1.0.0',
-    });
-
-    this.setupMCPTools();
   }
 
   /**
    * Initializes the Hedera MCP server with dual-mode capabilities
    */
   async initialize(): Promise<void> {
+    this.logger.info('INITIALIZE METHOD CALLED - Entry point');
+
     if (this.isInitialized) {
+      this.logger.info('Already initialized, returning early');
       return;
     }
 
     try {
-      this.logger.info('Initializing Hedera MCP Server...');
+      this.logger.info('Starting initialization process...');
 
       const signer = new ServerSigner(
         this.config.HEDERA_OPERATOR_ID,
         this.config.HEDERA_OPERATOR_KEY,
-        this.config.HEDERA_NETWORK
+        this.config.HEDERA_NETWORK,
       );
 
       this.hederaKit = new HederaAgentKit(signer, {}, 'directExecution');
@@ -69,7 +68,7 @@ export class HederaMCPServer {
       const openAIApiKey = process.env.OPENAI_API_KEY;
       if (!openAIApiKey) {
         throw new Error(
-          'OPENAI_API_KEY environment variable is required for conversational agent'
+          'OPENAI_API_KEY environment variable is required for conversational agent',
         );
       }
 
@@ -84,25 +83,55 @@ export class HederaMCPServer {
       this.profileManager = new ProfileManager(
         this.config,
         this.hederaKit,
-        this.logger
+        this.logger,
       );
+
+      if (
+        process.env.NODE_ENV === 'test' &&
+        this.config.DATABASE_URL.startsWith('sqlite://')
+      ) {
+        const { setupTestDatabase } = await import(
+          '../__tests__/test-db-setup'
+        );
+        await setupTestDatabase(this.config.DATABASE_URL, this.logger);
+      }
 
       this.creditManager = await CreditManagerFactory.create(
         this.config,
         this.hederaKit,
-        this.logger
+        this.logger,
       );
       await this.creditManager.initialize();
 
+      this.apiKeyService = new ApiKeyService(
+        this.creditManager.getDatabase(),
+        this.config.DATABASE_URL.startsWith('postgres'),
+        process.env.API_KEY_ENCRYPTION_SECRET || 'default-encryption-key',
+      );
+
+      this.logger.info('Creating MCP server...');
+      this.createMCPServer();
+      this.logger.info('Setting up MCP tools...');
+      this.setupMCPTools();
+      this.logger.info('MCP setup complete');
+
       if (this.creditManager) {
+        this.logger.info('Creating payment tools...');
         const paymentTools = createPaymentTools(
           this.config.SERVER_ACCOUNT_ID,
           this.config.HEDERA_NETWORK as 'testnet' | 'mainnet',
           this.creditManager,
-          this.logger
+          this.logger,
         );
 
-        paymentTools.forEach((tool) => {
+        this.logger.info(`Created ${paymentTools.length} payment tools`);
+
+        paymentTools.forEach(tool => {
+          this.logger.info(`Registering payment tool: ${tool.name}`, {
+            toolName: tool.name,
+            properties: Object.keys(tool.inputSchema.properties || {}),
+          });
+
           const zodSchema: any = {};
           const props = tool.inputSchema.properties as Record<string, any>;
           const required = (tool.inputSchema as any).required || [];
@@ -119,13 +148,37 @@ export class HederaMCPServer {
             }
           }
 
-          this.mcp.addTool({
+          this.mcp!.addTool({
             name: tool.name,
             description: tool.description,
             parameters: z.object(zodSchema),
-            execute: async (params) => {
-              const result = await tool.handler(params);
-              return JSON.stringify(result);
+            execute: async (params, context) => {
+              try {
+                const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+                if (!authenticatedAccountId) {
+                  return JSON.stringify({
+                    error: 'Authentication required for payment operations',
+                    tool: tool.name,
+                    status: 'unauthorized',
+                  });
+                }
+
+                const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+                
+                const result = await tool.handler(params);
+                return JSON.stringify(result);
+              } catch (error) {
+                this.logger.error(`Payment tool '${tool.name}' error`, { 
+                  error: error.message, 
+                  stack: error.stack, 
+                  params 
+                });
+                return JSON.stringify({
+                  error: `Payment tool failed: ${error.message}`,
+                  tool: tool.name,
+                  params
+                });
+              }
             },
           });
         });
@@ -135,7 +188,7 @@ export class HederaMCPServer {
         this.httpApiServer = new HttpApiServer(
           this.creditManager,
           this.config,
-          this.logger
+          this.logger,
         );
       }
 
@@ -155,6 +208,7 @@ export class HederaMCPServer {
 
       this.isInitialized = true;
     } catch (error) {
+      console.error('Full error:', error);
       this.logger.error('Failed to initialize Hedera MCP Server', { error });
       throw error;
     }
@@ -184,7 +238,7 @@ export class HederaMCPServer {
       }
 
       this.logger.warn(
-        'No existing profile found, skipping registration for now'
+        'No existing profile found, skipping registration for now',
       );
       this.logger.info('To register a new profile, set FORCE_REREGISTER=true');
     } catch (error) {
@@ -263,9 +317,164 @@ export class HederaMCPServer {
   }
 
   /**
+   * Create FastMCP server with authentication after services are ready
+   */
+  private createMCPServer(): void {
+    this.mcp = new FastMCP({
+      name: 'hedera-mcp-server',
+      version: '1.0.0',
+      authenticate: async request => {
+        try {
+          this.logger.debug('FastMCP authentication called', {
+            url: request.url,
+            method: request.method,
+            hasAuth: !!(
+              request.headers?.['authorization'] ||
+              request.headers?.['Authorization']
+            ),
+            hasApiKey: !!request.headers?.['x-api-key'],
+          });
+
+          const authHeader =
+            request.headers?.['authorization'] ||
+            request.headers?.['Authorization'];
+          const apiKeyHeader = request.headers?.['x-api-key'];
+
+          let apiKey: string | undefined;
+          if (
+            authHeader &&
+            typeof authHeader === 'string' &&
+            authHeader.startsWith('Bearer ')
+          ) {
+            apiKey = authHeader.replace('Bearer ', '');
+            this.logger.debug('Found API key in Authorization header');
+          } else if (apiKeyHeader && typeof apiKeyHeader === 'string') {
+            apiKey = apiKeyHeader;
+            this.logger.debug('Found API key in x-api-key header');
+          } else {
+            try {
+              const url = new URL(request.url);
+              const urlApiKey = url.searchParams.get('apiKey');
+              if (urlApiKey) {
+                apiKey = urlApiKey;
+                this.logger.debug('Found API key in URL query parameter');
+              }
+            } catch (urlError) {
+              this.logger.debug('Failed to parse URL for query parameters', {
+                url: request.url,
+                error: urlError.message,
+              });
+            }
+          }
+
+          if (!apiKey) {
+            this.logger.debug('No API key found - returning 401');
+            return new Response(
+              JSON.stringify({ error: 'Authentication required' }),
+              {
+                status: 401,
+                headers: { 'Content-Type': 'application/json' },
+              },
+            );
+          }
+
+          this.logger.debug('Attempting to authenticate API key', {
+            keyPrefix: apiKey.substring(0, 8) + '...',
+          });
+          const result = await this.authenticateApiKey(apiKey);
+
+          if (result instanceof Response) {
+            this.logger.debug('Authentication returned error response');
+            return result;
+          }
+
+          this.logger.debug('Authentication successful', {
+            accountId: result.accountId,
+          });
+          return result;
+        } catch (error) {
+          console.error('AUTHENTICATION FUNCTION ERROR:', error.message);
+          console.error('Error stack:', error.stack);
+          console.error('Request URL:', request.url);
+          console.error('Request method:', request.method);
+          
+          this.logger.error('AUTHENTICATION FUNCTION ERROR', {
+            error: error.message,
+            stack: error.stack,
+            url: request.url,
+            method: request.method,
+          });
+          return new Response(
+            JSON.stringify({ error: 'Authentication failed' }),
+            {
+              status: 500,
+              headers: { 'Content-Type': 'application/json' },
+            },
+          );
+        }
+      },
+    });
+  }
+
+  /**
+   * Authenticate API key for FastMCP
+   */
+  private async authenticateApiKey(
+    apiKey: string,
+  ): Promise<{ accountId: string; permissions: string[] } | Response> {
+    if (!this.apiKeyService) {
+      this.logger.error('ApiKeyService not initialized');
+      return new Response(
+        JSON.stringify({ error: 'Authentication service not initialized' }),
+        {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }
+
+    try {
+      this.logger.debug('Verifying API key with service');
+      const keyData = await this.apiKeyService.verifyApiKey(apiKey);
+
+      if (!keyData) {
+        this.logger.debug(
+          'API key verification failed - key not found or expired',
+        );
+        return new Response(
+          JSON.stringify({ error: 'Invalid or expired API key' }),
+          {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        );
+      }
+
+      this.logger.debug('API key verified successfully', {
+        accountId: keyData.hederaAccountId,
+        permissions: keyData.permissions?.length || 0,
+      });
+
+      return {
+        accountId: keyData.hederaAccountId,
+        permissions: keyData.permissions || [],
+      };
+    } catch (error) {
+      this.logger.error('Authentication error', { error });
+      return new Response(JSON.stringify({ error: 'Authentication failed' }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+  }
+
+  /**
    * Sets up MCP tools using FastMCP framework
    */
   private setupMCPTools(): void {
+    if (!this.mcp) {
+      throw new Error('MCP server not created yet');
+    }
     this.mcp.addTool({
       name: 'health_check',
       description: 'Check server health and status',
@@ -300,6 +509,9 @@ export class HederaMCPServer {
           version: this.config.MCP_SERVER_VERSION,
           description: this.config.AGENT_DESCRIPTION,
           network: this.config.HEDERA_NETWORK,
+          serverAccount: this.config.SERVER_ACCOUNT_ID,
+          hederaNetwork: this.config.HEDERA_NETWORK,
+          creditsConversionRate: this.config.CREDITS_CONVERSION_RATE,
           capabilities: {
             traditionalMCP: true,
             hcs10Support: this.config.ENABLE_HCS10,
@@ -318,38 +530,6 @@ export class HederaMCPServer {
     });
 
     this.mcp.addTool({
-      name: 'purchase_credits',
-      description: 'Purchase credits using HBAR for server operations',
-      parameters: z.object({
-        hbarAmount: z
-          .number()
-          .min(1)
-          .describe('Amount of HBAR to convert to credits'),
-        targetAccount: z
-          .string()
-          .describe('Account to credit'),
-      }),
-      execute: async (params: {
-        hbarAmount: number;
-        targetAccount?: string | undefined;
-      }) => {
-        return JSON.stringify({
-          instructions: `To purchase ${params.hbarAmount} HBAR worth of credits:`,
-          steps: [
-            `Send ${params.hbarAmount} HBAR to server account: ${this.config.SERVER_ACCOUNT_ID}`,
-            'Include your account ID in the memo field for automatic credit allocation',
-            'Credits will be allocated within 1-2 minutes after transaction confirmation',
-            `Rate: 1 HBAR = ${this.config.CREDITS_CONVERSION_RATE} credits (you will receive ${params.hbarAmount * this.config.CREDITS_CONVERSION_RATE} credits)`,
-          ],
-          serverAccount: this.config.SERVER_ACCOUNT_ID,
-          expectedCredits:
-            params.hbarAmount * this.config.CREDITS_CONVERSION_RATE,
-          memo: params.targetAccount || 'your-account-id-here',
-        });
-      },
-    });
-
-    this.mcp.addTool({
       name: 'generate_transaction_bytes',
       description:
         'Generate transaction bytes for any Hedera operation without execution',
@@ -357,36 +537,55 @@ export class HederaMCPServer {
         request: z
           .string()
           .describe(
-            'Natural language description of the transaction to generate bytes for'
+            'Natural language description of the transaction to generate bytes for',
           ),
         accountId: z
           .string()
-          .describe('Account to charge credits and execute the transaction'),
+          .optional()
+          .describe(
+            'Account to charge credits (defaults to your authenticated account)',
+          ),
       }),
-      execute: async (params: {
-        request: string;
-        accountId?: string | undefined;
-      }) => {
-        const chargeAccountId = params.accountId;
-
-        if (!chargeAccountId) {
+      execute: async (
+        params: {
+          request: string;
+          accountId?: string | undefined;
+        },
+        context: any,
+      ) => {
+        const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
           return JSON.stringify({
-            operation: 'schedule_transaction',
-            error: 'Account ID is required',
-            status: 'failed',
+            operation: 'generate_transaction_bytes',
+            error: 'Authentication required',
+            status: 'unauthorized',
+          });
+        }
+
+        const chargeAccountId = params.accountId || authenticatedAccountId;
+        const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+
+        if (
+          chargeAccountId !== authenticatedAccountId &&
+          !permissions.includes('admin')
+        ) {
+          return JSON.stringify({
+            operation: 'generate_transaction_bytes',
+            error: 'You can only charge credits to your own account',
+            status: 'forbidden',
           });
         }
 
         if (this.creditManager) {
           const creditCheck = await this.creditManager.checkSufficientCredits(
             chargeAccountId,
-            'generate_transaction_bytes'
+            'generate_transaction_bytes',
           );
 
           if (!creditCheck.sufficient) {
             return JSON.stringify({
               operation: 'generate_transaction_bytes',
-              error: 'Insufficient credits',
+              error: `Insufficient credits. Required: ${creditCheck.requiredCredits}, Current: ${creditCheck.currentBalance}`,
               required: creditCheck.requiredCredits,
               current: creditCheck.currentBalance,
               shortfall: creditCheck.shortfall,
@@ -398,7 +597,7 @@ export class HederaMCPServer {
           const success = await this.creditManager.consumeCredits(
             chargeAccountId,
             'generate_transaction_bytes',
-            `Generate bytes: ${params.request.substring(0, 50)}...`
+            `Generate bytes: ${params.request.substring(0, 50)}...`,
           );
 
           if (!success) {
@@ -414,8 +613,8 @@ export class HederaMCPServer {
           await this.processWithConversationalAgent(
             params.request,
             'provideBytes',
-            chargeAccountId
-          )
+            chargeAccountId,
+          ),
         );
       },
     });
@@ -427,36 +626,55 @@ export class HederaMCPServer {
         request: z
           .string()
           .describe(
-            'Natural language description of the transaction to schedule'
+            'Natural language description of the transaction to schedule',
           ),
         accountId: z
           .string()
-          .describe('Account to charge credits'),
+          .optional()
+          .describe(
+            'Account to charge credits (defaults to your authenticated account)',
+          ),
       }),
-      execute: async (params: {
-        request: string;
-        accountId?: string | undefined;
-      }) => {
-        const chargeAccountId = params.accountId;
-
-        if (!chargeAccountId) {
+      execute: async (
+        params: {
+          request: string;
+          accountId?: string | undefined;
+        },
+        context: any,
+      ) => {
+        const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
           return JSON.stringify({
             operation: 'schedule_transaction',
-            error: 'Account ID is required',
-            status: 'failed',
+            error: 'Authentication required',
+            status: 'unauthorized',
+          });
+        }
+
+        const chargeAccountId = params.accountId || authenticatedAccountId;
+        const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+
+        if (
+          chargeAccountId !== authenticatedAccountId &&
+          !permissions.includes('admin')
+        ) {
+          return JSON.stringify({
+            operation: 'schedule_transaction',
+            error: 'You can only charge credits to your own account',
+            status: 'forbidden',
           });
         }
 
         if (this.creditManager) {
           const creditCheck = await this.creditManager.checkSufficientCredits(
             chargeAccountId,
-            'schedule_transaction'
+            'schedule_transaction',
           );
 
           if (!creditCheck.sufficient) {
             return JSON.stringify({
               operation: 'schedule_transaction',
-              error: 'Insufficient credits',
+              error: `Insufficient credits. Required: ${creditCheck.requiredCredits}, Current: ${creditCheck.currentBalance}`,
               required: creditCheck.requiredCredits,
               current: creditCheck.currentBalance,
               shortfall: creditCheck.shortfall,
@@ -468,7 +686,7 @@ export class HederaMCPServer {
           const success = await this.creditManager.consumeCredits(
             chargeAccountId,
             'schedule_transaction',
-            `Schedule transaction: ${params.request.substring(0, 50)}...`
+            `Schedule transaction: ${params.request.substring(0, 50)}...`,
           );
 
           if (!success) {
@@ -484,8 +702,8 @@ export class HederaMCPServer {
           await this.processWithConversationalAgent(
             params.request,
             'scheduleTransaction',
-            chargeAccountId
-          )
+            chargeAccountId,
+          ),
         );
       },
     });
@@ -497,36 +715,55 @@ export class HederaMCPServer {
         request: z
           .string()
           .describe(
-            'Natural language description of the transaction to execute'
+            'Natural language description of the transaction to execute',
           ),
         accountId: z
           .string()
-          .describe('Account to charge credits'),
+          .optional()
+          .describe(
+            'Account to charge credits (defaults to your authenticated account)',
+          ),
       }),
-      execute: async (params: {
-        request: string;
-        accountId?: string | undefined;
-      }) => {
-        const chargeAccountId = params.accountId;
-
-        if (!chargeAccountId) {
+      execute: async (
+        params: {
+          request: string;
+          accountId?: string | undefined;
+        },
+        context: any,
+      ) => {
+        const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
           return JSON.stringify({
             operation: 'execute_transaction',
-            error: 'Account ID is required',
-            status: 'failed',
+            error: 'Authentication required',
+            status: 'unauthorized',
+          });
+        }
+
+        const chargeAccountId = params.accountId || authenticatedAccountId;
+        const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+
+        if (
+          chargeAccountId !== authenticatedAccountId &&
+          !permissions.includes('admin')
+        ) {
+          return JSON.stringify({
+            operation: 'execute_transaction',
+            error: 'You can only charge credits to your own account',
+            status: 'forbidden',
           });
         }
 
         if (this.creditManager) {
           const creditCheck = await this.creditManager.checkSufficientCredits(
             chargeAccountId,
-            'execute_transaction'
+            'execute_transaction',
           );
 
           if (!creditCheck.sufficient) {
             return JSON.stringify({
               operation: 'execute_transaction',
-              error: 'Insufficient credits',
+              error: `Insufficient credits. Required: ${creditCheck.requiredCredits}, Current: ${creditCheck.currentBalance}`,
               required: creditCheck.requiredCredits,
               current: creditCheck.currentBalance,
               shortfall: creditCheck.shortfall,
@@ -538,7 +775,7 @@ export class HederaMCPServer {
           const success = await this.creditManager.consumeCredits(
             chargeAccountId,
             'execute_transaction',
-            `Execute transaction: ${params.request.substring(0, 50)}...`
+            `Execute transaction: ${params.request.substring(0, 50)}...`,
           );
 
           if (!success) {
@@ -554,33 +791,59 @@ export class HederaMCPServer {
           await this.processWithConversationalAgent(
             params.request,
             'directExecution',
-            chargeAccountId
-          )
+            chargeAccountId,
+          ),
         );
       },
     });
 
     this.mcp.addTool({
       name: 'check_credit_balance',
-      description: 'Check credit balance for an account',
+      description: 'Check credit balance for your authenticated account',
       parameters: z.object({
         accountId: z
           .string()
-          .describe('Account to check (defaults to server operator)'),
+          .optional()
+          .describe(
+            'Account to check (defaults to your authenticated account)',
+          ),
       }),
-      execute: async (params: { accountId?: string | undefined }) => {
+      execute: async (
+        params: { accountId?: string | undefined },
+        context: any,
+      ) => {
+        
         if (!this.creditManager) {
           return JSON.stringify({ error: 'Credit system not initialized' });
         }
 
-        const accountId = params.accountId;
-        if (!accountId) {
-          return JSON.stringify({ error: 'Account ID is required' });
+        const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
+          return JSON.stringify({
+            error: 'Authentication required',
+            operation: 'check_credit_balance',
+            status: 'unauthorized',
+          });
         }
+
+        const accountId = params.accountId || authenticatedAccountId;
+        const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+
+        if (
+          accountId !== authenticatedAccountId &&
+          !permissions.includes('admin')
+        ) {
+          return JSON.stringify({
+            error: 'You can only check your own credit balance',
+            operation: 'check_credit_balance',
+            status: 'forbidden',
+          });
+        }
+
         const balance = await this.creditManager.getCreditBalance(accountId);
         const costs = await this.creditManager.getOperationCosts();
 
-        return JSON.stringify({
+        const result = {
           accountId,
           balance: balance
             ? {
@@ -595,17 +858,23 @@ export class HederaMCPServer {
           message: balance
             ? `You have ${balance.balance} credits available`
             : 'No credits found. Purchase credits using HBAR.',
-        });
+        };
+
+        return JSON.stringify(result);
       },
     });
 
     this.mcp.addTool({
       name: 'get_credit_history',
-      description: 'Get credit transaction history for an account',
+      description:
+        'Get credit transaction history for your authenticated account',
       parameters: z.object({
         accountId: z
           .string()
-          .describe('Account to check'),
+          .optional()
+          .describe(
+            'Account to check (defaults to your authenticated account)',
+          ),
         limit: z
           .number()
           .min(1)
@@ -613,22 +882,43 @@ export class HederaMCPServer {
           .optional()
           .describe('Maximum number of transactions to return (default 20)'),
       }),
-      execute: async (params: {
-        accountId?: string | undefined;
-        limit?: number | undefined;
-      }) => {
+      execute: async (
+        params: {
+          accountId?: string | undefined;
+          limit?: number | undefined;
+        },
+        context: any,
+      ) => {
         if (!this.creditManager) {
           return JSON.stringify({ error: 'Credit system not initialized' });
         }
 
-        const accountId = params.accountId;
-        if (!accountId) {
-          return JSON.stringify({ error: 'Account ID is required' });
+        const authenticatedAccountId = context.accountId || context.session?.accountId || context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
+          return JSON.stringify({
+            error: 'Authentication required',
+            operation: 'get_credit_history',
+            status: 'unauthorized',
+          });
+        }
+
+        const accountId = params.accountId || authenticatedAccountId;
+        const permissions = context.permissions || context.session?.permissions || context.session?.auth?.permissions || [];
+
+        if (
+          accountId !== authenticatedAccountId &&
+          !permissions.includes('admin')
+        ) {
+          return JSON.stringify({
+            error: 'You can only check your own credit history',
+            operation: 'get_credit_history',
+            status: 'forbidden',
+          });
         }
         const limit = params.limit || 20;
         const history = await this.creditManager.getCreditHistory(
           accountId,
-          limit
+          limit,
         );
 
         return JSON.stringify({
@@ -636,6 +926,11 @@ export class HederaMCPServer {
           transactions: history,
           count: history.length,
           message: `Retrieved ${history.length} credit transactions`,
+          pagination: {
+            limit: limit,
+            offset: 0,
+            total: history.length,
+          },
         });
       },
     });
@@ -670,7 +965,7 @@ export class HederaMCPServer {
 
         if (success) {
           const creditsAllocated = Math.floor(
-            params.hbarAmount * this.config.CREDITS_CONVERSION_RATE
+            params.hbarAmount * this.config.CREDITS_CONVERSION_RATE,
           );
           return JSON.stringify({
             success: true,
@@ -700,7 +995,7 @@ export class HederaMCPServer {
 
         try {
           const fullProfile = await this.profileManager.getFullProfile();
-          
+
           return JSON.stringify({
             success: true,
             profileState: {
@@ -728,7 +1023,7 @@ export class HederaMCPServer {
   private async processWithConversationalAgent(
     request: string,
     operationalMode: 'provideBytes' | 'scheduleTransaction' | 'directExecution',
-    userAccountId: string
+    userAccountId: string,
   ): Promise<any> {
     if (!this.hederaKit) {
       throw new Error('HederaAgentKit not initialized');
@@ -740,7 +1035,7 @@ export class HederaMCPServer {
 
     try {
       this.logger.info(
-        `Processing request with ${operationalMode} mode: "${request.substring(0, 100)}..."`
+        `Processing request with ${operationalMode} mode: "${request.substring(0, 100)}..."`,
       );
 
       if (operationalMode === 'directExecution') {
@@ -754,8 +1049,8 @@ export class HederaMCPServer {
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error('Request timeout after 30 seconds')),
-              timeoutMs
-            )
+              timeoutMs,
+            ),
           ),
         ])) as any;
 
@@ -774,7 +1069,7 @@ export class HederaMCPServer {
           new ServerSigner(
             this.config.HEDERA_OPERATOR_ID,
             this.config.HEDERA_OPERATOR_KEY,
-            this.config.HEDERA_NETWORK
+            this.config.HEDERA_NETWORK,
           ),
           {
             operationalMode: 'provideBytes',
@@ -782,7 +1077,7 @@ export class HederaMCPServer {
             verbose: false,
             openAIApiKey: process.env.OPENAI_API_KEY!,
             scheduleUserTransactionsInBytesMode: false,
-          }
+          },
         );
         await bytesAgent.initialize();
 
@@ -792,8 +1087,8 @@ export class HederaMCPServer {
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error('Request timeout after 30 seconds')),
-              timeoutMs
-            )
+              timeoutMs,
+            ),
           ),
         ])) as any;
 
@@ -813,7 +1108,7 @@ export class HederaMCPServer {
           new ServerSigner(
             this.config.HEDERA_OPERATOR_ID,
             this.config.HEDERA_OPERATOR_KEY,
-            this.config.HEDERA_NETWORK
+            this.config.HEDERA_NETWORK,
           ),
           {
             operationalMode: 'provideBytes',
@@ -821,7 +1116,7 @@ export class HederaMCPServer {
             verbose: false,
             openAIApiKey: process.env.OPENAI_API_KEY!,
             scheduleUserTransactionsInBytesMode: true,
-          }
+          },
         );
         await scheduleAgent.initialize();
 
@@ -831,8 +1126,8 @@ export class HederaMCPServer {
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error('Request timeout after 30 seconds')),
-              timeoutMs
-            )
+              timeoutMs,
+            ),
           ),
         ])) as any;
 
@@ -890,8 +1185,19 @@ export class HederaMCPServer {
    * Starts the FastMCP server
    */
   async start(): Promise<void> {
+    this.logger.info('START METHOD CALLED - Entry point');
+
     if (!this.isInitialized) {
+      this.logger.info('Server not initialized, calling initialize()');
       await this.initialize();
+      this.logger.info('Initialize completed successfully');
+    } else {
+      this.logger.info('Server already initialized, skipping initialization');
+    }
+
+    if (!this.mcp) {
+      this.logger.error('MCP server not initialized after initialization');
+      throw new Error('MCP server not initialized');
     }
 
     this.logger.info('Starting FastMCP server...');
@@ -905,7 +1211,7 @@ export class HederaMCPServer {
       ) {
         const fastmcpPort = parseInt(process.env.FASTMCP_PORT || '3000');
         this.logger.info(
-          `Starting FastMCP with httpStream transport on port ${fastmcpPort}...`
+          `Starting FastMCP with httpStream transport on port ${fastmcpPort}...`,
         );
         await this.mcp.start({
           transportType: 'httpStream',
@@ -914,34 +1220,34 @@ export class HederaMCPServer {
           },
         });
         this.logger.info(
-          `FastMCP httpStream server started on port ${fastmcpPort}`
+          `FastMCP httpStream server started on port ${fastmcpPort}`,
         );
         this.logger.info(
-          `Connect via SSE: http://localhost:${fastmcpPort}/stream`
+          `Connect via SSE: http://localhost:${fastmcpPort}/stream`,
         );
       } else if (!isInteractive && this.config.MCP_TRANSPORT === 'stdio') {
-        await this.mcp.start({ transportType: 'stdio' });
+        this.mcp.start({ transportType: 'stdio' });
         this.logger.info('FastMCP stdio server started');
       } else if (!isInteractive && this.config.MCP_TRANSPORT === 'both') {
-        await this.mcp.start({ transportType: 'stdio' });
+        this.mcp.start({ transportType: 'stdio' });
         this.logger.info(
-          'FastMCP stdio server started (use HTTP API on port 3002 for web)'
+          'FastMCP stdio server started (use HTTP API on port 3002 for web)',
         );
       } else if (isInteractive && this.config.MCP_TRANSPORT === 'stdio') {
         this.logger.warn(
-          'Running interactively with stdio transport - this will block!'
+          'Running interactively with stdio transport - this will block!',
         );
         this.logger.info(
-          'Skipping FastMCP stdio to prevent blocking. Use HTTP API on port 3002'
+          'Skipping FastMCP stdio to prevent blocking. Use HTTP API on port 3002',
         );
         this.logger.info(
-          'To use FastMCP, set MCP_TRANSPORT=http or run without TTY'
+          'To use FastMCP, set MCP_TRANSPORT=http or run without TTY',
         );
       }
     } catch (error) {
       this.logger.error('Failed to start FastMCP', { error });
       this.logger.info(
-        'Continuing without FastMCP - use HTTP API on port 3002'
+        'Continuing without FastMCP - use HTTP API on port 3002',
       );
     }
 
@@ -964,7 +1270,9 @@ export class HederaMCPServer {
       await this.httpApiServer.stop();
     }
 
-    await this.mcp.stop();
+    if (this.mcp) {
+      await this.mcp.stop();
+    }
     this.logger.info('Server stopped');
   }
 

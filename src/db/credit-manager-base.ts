@@ -1,11 +1,12 @@
-import { Logger } from '@hashgraphonline/standards-sdk';
+import { Logger, type NetworkType } from '@hashgraphonline/standards-sdk';
 import { HederaAgentKit } from '@hashgraphonline/hedera-agent-kit';
 import type { ServerConfig } from '../config/server-config';
 import {
   calculateCreditsForHbar,
   getOperationCost,
+  getHbarToUsdRate,
 } from '../config/pricing-config';
-import { PaymentTools } from '@/tools/payment-tools';
+import { PaymentTools } from '../tools/payment-tools';
 
 export interface CreditBalance {
   accountId: string;
@@ -21,6 +22,7 @@ export interface HbarPayment {
   targetAccountId?: string | undefined;
   hbarAmount: number;
   creditsAllocated: number;
+  conversionRate?: number;
   memo?: string | undefined;
   status:
     | 'PENDING'
@@ -71,22 +73,32 @@ export abstract class CreditManagerBase {
   }
 
   /**
-   * Initialize default operation costs
+   * Initialize default operation costs from pricing config
    */
   protected initializeOperationCosts(): void {
-    this.operationCosts.set('generate_transaction_bytes', 5);
-    this.operationCosts.set('schedule_transaction', 10);
-    this.operationCosts.set('execute_transaction', 15);
     this.operationCosts.set('health_check', 0);
     this.operationCosts.set('get_server_info', 0);
+    this.operationCosts.set('check_credit_balance', 0);
+    this.operationCosts.set('get_credit_history', 0);
+    this.operationCosts.set('purchase_credits', 0);
+    this.operationCosts.set('verify_payment', 0);
+    this.operationCosts.set('check_payment_status', 0);
+    this.operationCosts.set('get_payment_history', 0);
+    this.operationCosts.set('get_pricing_configuration', 0);
+    this.operationCosts.set('process_hbar_payment', 0);
     this.operationCosts.set('refresh_profile', 2);
+    this.operationCosts.set('generate_transaction_bytes', 10);
+    this.operationCosts.set('schedule_transaction', 20);
+    this.operationCosts.set('execute_transaction', 50);
   }
 
   /**
    * Calculate credits from HBAR amount using tiered pricing
    */
-  protected calculateCredits(hbarAmount: number): number {
-    return calculateCreditsForHbar(hbarAmount);
+  protected async calculateCredits(hbarAmount: number): Promise<number> {
+    const networkType = this.config.HEDERA_NETWORK as NetworkType;
+    const hbarToUsdRate = await getHbarToUsdRate(networkType);
+    return calculateCreditsForHbar(hbarAmount, hbarToUsdRate);
   }
 
   /**
@@ -224,6 +236,14 @@ export abstract class CreditManagerBase {
    */
   async processHbarPayment(payment: HbarPayment): Promise<boolean> {
     try {
+      if (payment.hbarAmount <= 0) {
+        this.logger.warn('Rejected payment with non-positive amount', {
+          transactionId: payment.transactionId,
+          amount: payment.hbarAmount,
+        });
+        return false;
+      }
+
       const creditsToAllocate =
         payment.creditsAllocated || this.calculateCredits(payment.hbarAmount);
 
@@ -241,17 +261,22 @@ export abstract class CreditManagerBase {
           );
           const newBalance = (currentBalance?.balance || 0) + creditsToAllocate;
 
-          await this.updatePaymentStatus(payment.transactionId, 'COMPLETED');
-
-          await this.recordCreditTransaction({
-            accountId: payment.payerAccountId,
-            transactionType: 'purchase',
-            amount: creditsToAllocate,
-            balanceAfter: newBalance,
-            description: `HBAR payment confirmed: ${payment.hbarAmount} HBAR → ${creditsToAllocate} credits`,
-            hbarPaymentId: payment.transactionId as any,
-            createdAt: new Date().toISOString(),
-          });
+          await this.recordHbarPaymentWithCredits(
+            {
+              ...existingPayment,
+              ...payment,
+              creditsAllocated: creditsToAllocate,
+              status: 'COMPLETED',
+            },
+            {
+              accountId: payment.payerAccountId,
+              transactionType: 'purchase',
+              amount: creditsToAllocate,
+              balanceAfter: newBalance,
+              description: `HBAR payment confirmed: ${payment.hbarAmount} HBAR → ${creditsToAllocate} credits`,
+              createdAt: payment.timestamp || new Date().toISOString(),
+            }
+          );
 
           this.logger.info('Pending payment confirmed and credits allocated', {
             transactionId: payment.transactionId,
@@ -260,8 +285,18 @@ export abstract class CreditManagerBase {
           return true;
         }
 
-        this.logger.warn('Payment already processed', {
+        if (existingPayment.status === 'COMPLETED' || existingPayment.status === 'completed') {
+          this.logger.info('Payment already completed', {
+            transactionId: payment.transactionId,
+            existingStatus: existingPayment.status,
+          });
+          return true;
+        }
+
+        this.logger.warn('Payment exists in unexpected state', {
           transactionId: payment.transactionId,
+          existingStatus: existingPayment.status,
+          newStatus: payment.status,
         });
         return false;
       }
@@ -283,7 +318,7 @@ export abstract class CreditManagerBase {
             amount: creditsToAllocate,
             balanceAfter: newBalance,
             description: `HBAR payment: ${payment.hbarAmount} HBAR → ${creditsToAllocate} credits`,
-            createdAt: new Date().toISOString(),
+            createdAt: payment.timestamp || new Date().toISOString(),
           }
         );
 
@@ -308,7 +343,7 @@ export abstract class CreditManagerBase {
               (await this.getCreditBalance(payment.payerAccountId))?.balance ||
               0,
             description: `HBAR payment pending: ${payment.hbarAmount} HBAR`,
-            createdAt: new Date().toISOString(),
+            createdAt: payment.timestamp || new Date().toISOString(),
           }
         );
 
@@ -454,5 +489,6 @@ export abstract class CreditManagerBase {
     status: HbarPayment['status']
   ): Promise<void>;
   abstract getPendingPayments(): Promise<HbarPayment[]>;
+  abstract getDatabase(): any;
   abstract close?(): Promise<void>;
 }

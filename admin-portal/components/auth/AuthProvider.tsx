@@ -12,13 +12,16 @@ import { LedgerId } from '@hashgraph/sdk';
 import { HEDERA_CONFIG } from '@/lib/constants/config';
 import { HederaMirrorNode, Logger } from '@hashgraphonline/standards-sdk';
 import type { AuthState, User } from '@/types/auth';
-import { getApiClient } from '@/lib/api-client';
+import { getApiClient, AuthenticationError } from '@/lib/api-client';
+import { MCPAuthClient } from '@/lib/auth/mcp-auth-client';
 
 interface AuthContextValue extends AuthState {
   connect: () => Promise<void>;
   disconnect: () => void;
   refreshBalance: () => Promise<void>;
   sdk: HashinalsWalletConnectSDK | null;
+  authenticate: () => Promise<void>;
+  mcpAuthClient: MCPAuthClient | null;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -60,16 +63,30 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const [sdk, setSdk] = useState<HashinalsWalletConnectSDK | null>(null);
   const [mirrorNode, setMirrorNode] = useState<HederaMirrorNode | null>(null);
+  const [mcpAuthClient, setMcpAuthClient] = useState<MCPAuthClient | null>(
+    null,
+  );
 
   const fetchUserData = useCallback(
     async (accountId: string) => {
       try {
         const apiClient = getApiClient();
-        const [hbarData, creditData] = await Promise.all([
-          mirrorNode ? mirrorNode.getAccountBalance(accountId) : null,
-          apiClient.getCreditBalance(accountId)
-            .catch(() => ({ balance: 0, totalPurchased: 0, totalConsumed: 0 })),
-        ]);
+
+        const hbarData = mirrorNode
+          ? await mirrorNode.getAccountBalance(accountId)
+          : null;
+
+        let creditData = { balance: 0, totalPurchased: 0, totalConsumed: 0 };
+        if (authState.apiKey) {
+          try {
+            creditData = await apiClient.getCreditBalance(accountId);
+          } catch (error) {
+            if (error instanceof AuthenticationError) {
+              setAuthState(prev => ({ ...prev, apiKey: null }));
+              apiClient.setApiKey(null);
+            }
+          }
+        }
 
         const hbarBalance = hbarData || 0;
 
@@ -81,17 +98,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
           },
         };
 
-        setAuthState({
+        setAuthState(prev => ({
+          ...prev,
           isConnected: true,
           user,
           isLoading: false,
-        });
+        }));
       } catch (error) {
-        logger.error('Failed to fetch user data', { error });
-        setAuthState((prev) => ({ ...prev, isLoading: false }));
+        if (error instanceof AuthenticationError) {
+          logger.info('Authentication expired, need to re-authenticate');
+          setAuthState(prev => ({
+            ...prev,
+            apiKey: null,
+            isLoading: false,
+          }));
+          const apiClient = getApiClient();
+          apiClient.setApiKey(null);
+        } else {
+          logger.error('Failed to fetch user data', { error });
+          setAuthState(prev => ({ ...prev, isLoading: false }));
+        }
       }
     },
-    [mirrorNode]
+    [mirrorNode, authState.apiKey],
   );
 
   useEffect(() => {
@@ -100,37 +129,65 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const ledger = getLedgerId(HEDERA_CONFIG.network);
         const instance = HashinalsWalletConnectSDK.getInstance(
           undefined,
-          ledger
+          ledger,
         );
         instance.setNetwork(ledger);
 
         await instance.init(
           HEDERA_CONFIG.walletConnect.projectId,
           HEDERA_CONFIG.walletConnect.metadata,
-          ledger
+          ledger,
         );
         setSdk(instance);
+
+        const authClient = new MCPAuthClient({ sdk: instance });
+        await authClient.initialize();
+        setMcpAuthClient(authClient);
+
+        const storedApiKey = authClient.getStoredApiKey();
+        console.log('Checking for stored API key:', !!storedApiKey);
+        if (storedApiKey) {
+          console.log('Restoring stored API key to auth state');
+          setAuthState(prev => ({ ...prev, apiKey: storedApiKey }));
+          const apiClient = getApiClient();
+          apiClient.setApiKey(storedApiKey);
+        } else {
+          console.log('No stored API key found');
+        }
 
         const mirrorNodeLogger = Logger.getInstance({
           level: 'error',
           module: 'MirrorNode',
         });
-        const mirrorNodeInstance = new HederaMirrorNode(HEDERA_CONFIG.network as 'mainnet' | 'testnet', mirrorNodeLogger);
+        const mirrorNodeInstance = new HederaMirrorNode(
+          HEDERA_CONFIG.network as 'mainnet' | 'testnet',
+          mirrorNodeLogger,
+        );
         setMirrorNode(mirrorNodeInstance);
 
         const accountResponse = await instance.initAccount(
           HEDERA_CONFIG.walletConnect.projectId,
           HEDERA_CONFIG.walletConnect.metadata,
-          ledger
+          ledger,
         );
 
         if (accountResponse?.accountId) {
+          logger.info('SDK initialized with account', {
+            accountId: accountResponse.accountId,
+          });
+
+          const authClient = new MCPAuthClient(
+            accountResponse.accountId,
+            instance,
+          );
+          setMcpAuthClient(authClient);
+
           await fetchUserData(accountResponse.accountId);
         }
       } catch (error) {
         logger.error('Error initializing SDK', { error });
       } finally {
-        setAuthState((prev) => ({ ...prev, isLoading: false }));
+        setAuthState(prev => ({ ...prev, isLoading: false }));
       }
     };
 
@@ -147,20 +204,32 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!sdk) return;
 
     try {
-      setAuthState((prev) => ({ ...prev, isLoading: true }));
+      setAuthState(prev => ({ ...prev, isLoading: true }));
 
       const response = await sdk.connectWallet(
         HEDERA_CONFIG.walletConnect.projectId,
         HEDERA_CONFIG.walletConnect.metadata,
-        getLedgerId(HEDERA_CONFIG.network)
+        getLedgerId(HEDERA_CONFIG.network),
       );
 
       if (response?.accountId) {
+        logger.info('Wallet connected successfully', {
+          accountId: response.accountId,
+        });
+
+        if (!mcpAuthClient) {
+          const authClient = new MCPAuthClient(response.accountId, sdk);
+          setMcpAuthClient(authClient);
+        }
+
         await fetchUserData(response.accountId);
+      } else {
+        logger.error('No account ID received from wallet connection');
+        setAuthState(prev => ({ ...prev, isLoading: false }));
       }
     } catch (error) {
       logger.error('Failed to connect wallet', { error });
-      setAuthState((prev) => ({ ...prev, isLoading: false }));
+      setAuthState(prev => ({ ...prev, isLoading: false }));
     }
   }, [sdk, fetchUserData]);
 
@@ -169,11 +238,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     try {
       sdk.disconnectWallet(true);
-      setAuthState({
+      setAuthState(prev => ({
+        ...prev,
         isConnected: false,
         user: null,
         isLoading: false,
-      });
+      }));
     } catch (error) {
       logger.error('Failed to disconnect wallet', { error });
     }
@@ -185,12 +255,58 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await fetchUserData(authState.user.accountId);
   }, [authState.user, fetchUserData]);
 
+  const authenticate = useCallback(async () => {
+    if (!mcpAuthClient || !authState.user) {
+      throw new Error('Wallet must be connected before authentication');
+    }
+
+    try {
+      const authResponse = await mcpAuthClient.authenticate({
+        name: 'Credit Purchase',
+        permissions: ['credits:read', 'credits:write'],
+        expiresIn: 24 * 60 * 60, // 24 hours in seconds
+      });
+
+      console.log(
+        'Setting new API key in auth state:',
+        authResponse.apiKey.substring(0, 8) + '...',
+      );
+      setAuthState(prev => ({ ...prev, apiKey: authResponse.apiKey }));
+
+      const apiClient = getApiClient();
+      apiClient.setApiKey(authResponse.apiKey);
+
+      logger.info('MCP authentication successful');
+    } catch (error) {
+      logger.error('MCP authentication failed', { error });
+      throw error;
+    }
+  }, [mcpAuthClient, authState.user, logger]);
+
   useEffect(() => {
     if (authState.isConnected && authState.user) {
       const interval = setInterval(refreshBalance, 30000);
       return () => clearInterval(interval);
     }
   }, [authState.isConnected, authState.user, refreshBalance]);
+
+  useEffect(() => {
+    if (mcpAuthClient && !authState.apiKey) {
+      const checkStoredKey = () => {
+        const storedKey = mcpAuthClient.getStoredApiKey();
+        if (storedKey && storedKey !== authState.apiKey) {
+          console.log('Restoring missing API key from storage');
+          setAuthState(prev => ({ ...prev, apiKey: storedKey }));
+          const apiClient = getApiClient();
+          apiClient.setApiKey(storedKey);
+        }
+      };
+
+      checkStoredKey();
+      const interval = setInterval(checkStoredKey, 5000);
+      return () => clearInterval(interval);
+    }
+  }, [mcpAuthClient, authState.apiKey]);
 
   return (
     <AuthContext.Provider
@@ -200,6 +316,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         disconnect,
         refreshBalance,
         sdk,
+        authenticate,
+        mcpAuthClient,
       }}
     >
       {children}

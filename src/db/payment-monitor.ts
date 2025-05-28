@@ -1,7 +1,7 @@
-import { Logger } from '@hashgraphonline/standards-sdk';
+import { Logger, type NetworkType } from '@hashgraphonline/standards-sdk';
 import { CreditManagerBase } from './credit-manager-base';
 import type { HbarPayment } from './credit-manager-base';
-import { calculateCreditsForHbar } from '../config/pricing-config';
+import { calculateCreditsForHbar, getHbarToUsdRate } from '../config/pricing-config';
 
 export interface PaymentTransaction {
   transaction_id: string;
@@ -83,7 +83,6 @@ export class PaymentMonitor {
       );
 
       for (const payment of pendingPayments) {
-        // Check if payment is too old (more than 5 minutes)
         if (payment.timestamp) {
           const paymentTime = new Date(payment.timestamp).getTime();
           const now = Date.now();
@@ -183,11 +182,15 @@ export class PaymentMonitor {
         return;
       }
 
+      const networkType = this.network as NetworkType;
+      const hbarToUsdRate = await getHbarToUsdRate(networkType);
+      const creditsAllocated = calculateCreditsForHbar(hbarAmount, hbarToUsdRate);
+      
       const payment: HbarPayment = {
         transactionId: tx.transaction_id,
         payerAccountId,
         hbarAmount,
-        creditsAllocated: calculateCreditsForHbar(hbarAmount),
+        creditsAllocated,
         timestamp: new Date(tx.consensus_timestamp).toISOString(),
         status: 'COMPLETED',
       };

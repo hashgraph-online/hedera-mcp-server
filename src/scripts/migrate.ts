@@ -3,10 +3,10 @@ import { Logger } from '@hashgraphonline/standards-sdk';
 
 async function main() {
   const databaseUrl = process.env.DATABASE_URL || 'sqlite://./data/credits.db';
-  
-  const logger = new Logger({ 
+
+  const logger = new Logger({
     module: 'DatabaseMigration',
-    prettyPrint: true 
+    prettyPrint: true,
   });
 
   try {
@@ -15,9 +15,10 @@ async function main() {
     logger.info('Database migrations completed successfully');
     process.exit(0);
   } catch (error) {
+    console.error(error);
     logger.error('Migration failed', { error });
     process.exit(1);
   }
 }
 
-main(); 
+main();

@@ -1,0 +1,220 @@
+name: Authentication Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'src/auth/**'
+      - 'src/__tests__/auth/**'
+      - 'admin-portal/**'
+      - 'package.json'
+      - '.github/workflows/auth-tests.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'src/auth/**'
+      - 'src/__tests__/auth/**'
+      - 'admin-portal/**'
+      - 'package.json'
+      - '.github/workflows/auth-tests.yml'
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [20.x, 22.x]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v4
+      with:
+        node-version: ${{ matrix.node-version }}
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run auth unit tests
+      run: npm run test:auth:unit
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage/lcov.info
+        flags: auth-unit
+        name: auth-unit-${{ matrix.node-version }}
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run auth integration tests
+      run: npm run test:auth:integration
+      env:
+        REDIS_URL: redis://localhost:6379
+        DATABASE_URL: sqlite://./test.db
+        ENCRYPTION_KEY: test-encryption-key-32-characters
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./coverage/lcov.info
+        flags: auth-integration
+        name: auth-integration
+
+  admin-portal-tests:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+        cache: 'npm'
+    
+    - name: Install root dependencies
+      run: npm ci
+    
+    - name: Install admin portal dependencies
+      working-directory: ./admin-portal
+      run: npm ci
+    
+    - name: Run admin portal tests
+      working-directory: ./admin-portal
+      run: npm test
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./admin-portal/coverage/lcov.info
+        flags: admin-portal
+        name: admin-portal
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: hedera_mcp_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Use Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20.x
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: |
+        npm ci
+        cd admin-portal && npm ci
+    
+    - name: Run migrations
+      run: npm run migrate
+      env:
+        DATABASE_URL: postgres://test:test@localhost:5432/hedera_mcp_test
+    
+    - name: Start servers
+      run: |
+        npm run dev &
+        cd admin-portal && npm run dev &
+        npx wait-on http://localhost:3000/health http://localhost:3001 -t 30000
+      env:
+        DATABASE_URL: postgres://test:test@localhost:5432/hedera_mcp_test
+        REDIS_URL: redis://localhost:6379
+        ENCRYPTION_KEY: test-encryption-key-32-characters
+        SERVER_PRIVATE_KEY: ${{ secrets.TEST_HEDERA_PRIVATE_KEY }}
+        SERVER_PROFILE_TOPIC_ID: 0.0.12345
+        REQUIRE_AUTH: true
+    
+    - name: Run Cypress tests
+      uses: cypress-io/github-action@v6
+      with:
+        working-directory: .
+        wait-on: 'http://localhost:3001'
+        wait-on-timeout: 120
+        browser: chrome
+        record: false
+      env:
+        CYPRESS_BASE_URL: http://localhost:3001
+    
+    - name: Upload Cypress screenshots
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: cypress-screenshots
+        path: cypress/screenshots
+    
+    - name: Upload Cypress videos
+      uses: actions/upload-artifact@v3
+      if: failure()
+      with:
+        name: cypress-videos
+        path: cypress/videos
+
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run security audit
+      run: npm audit --audit-level=high
+    
+    - name: Run Snyk security scan
+      uses: snyk/actions/node@master
+      env:
+        SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+      with:
+        args: --severity-threshold=high

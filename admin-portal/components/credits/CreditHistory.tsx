@@ -66,14 +66,29 @@ export function CreditHistory({}: CreditHistoryProps) {
     return () => clearInterval(interval);
   }, [user, logger]);
 
+  /**
+   * Formats an ISO date string into a human-readable format
+   * @param {string} dateString - The ISO date string to format
+   * @returns {string} Formatted date string in locale format
+   */
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleString();
   };
 
+  /**
+   * Returns the appropriate color class based on transaction type
+   * @param {string} type - The transaction type ('purchase' or 'consumption')
+   * @returns {string} Tailwind CSS color class for the transaction
+   */
   const getTransactionColor = (type: string) => {
     return type === 'purchase' ? 'text-hedera-green' : 'text-red-600';
   };
 
+  /**
+   * Returns the appropriate sign symbol based on transaction type
+   * @param {string} type - The transaction type ('purchase' or 'consumption')
+   * @returns {string} Plus or minus sign for display
+   */
   const getTransactionSign = (type: string) => {
     return type === 'purchase' ? '+' : '-';
   };

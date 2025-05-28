@@ -7,7 +7,6 @@ import { HederaAgentKit } from '@hashgraphonline/hedera-agent-kit';
 import type { ServerConfig } from '../config/server-config';
 import { CreditManagerBase } from './credit-manager-base';
 import { CreditService } from './credit-service';
-import { runMigrations } from './migrate';
 import * as schema from './schema';
 
 export class CreditManagerFactory {
@@ -25,12 +24,11 @@ export class CreditManagerFactory {
     logger: Logger
   ): Promise<CreditManagerBase> {
     const dbUrl = config.DATABASE_URL;
-
-    await runMigrations(dbUrl, logger);
-
+    
     if (dbUrl.startsWith('sqlite://')) {
       const dbPath = dbUrl.replace('sqlite://', '');
       logger.info('Creating Credit Service (SQLite mode)', { path: dbPath });
+      
       const sqlite = new Database(dbPath);
       const db = drizzle(sqlite, { schema });
       return new CreditService(db, false, config, hederaKit, logger);

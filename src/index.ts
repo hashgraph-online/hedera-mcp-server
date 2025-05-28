@@ -17,7 +17,6 @@ async function main(): Promise<void> {
   });
 
   try {
-
     logger.info('Starting Hedera MCP Server...');
 
     logger.info('Configuration loaded', {
@@ -57,7 +56,7 @@ async function main(): Promise<void> {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  process.on('uncaughtException', (error) => {
+  process.on('uncaughtException', error => {
     logger.error('Uncaught exception', { error });
     shutdown();
   });
@@ -68,7 +67,7 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((error) => {
+  main().catch(error => {
     const logger = Logger.getInstance({ module: 'HederaMCPMain' });
     logger.error('Fatal error', { error });
     process.exit(1);

@@ -1,4 +1,12 @@
 #!/usr/bin/env tsx
+/**
+ * Development script that runs both MCP server and Admin portal
+ *
+ * Port Layout:
+ * - 3000: MCP Server (FastMCP SSE/HTTP)
+ * - 3001: Admin Portal (Next.js)
+ * - 3002: HTTP API (for admin operations)
+ */
 import { spawn, ChildProcess } from 'child_process';
 import chalk from 'chalk';
 import boxen from 'boxen';
@@ -14,8 +22,8 @@ const adminPortalDir = join(rootDir, 'admin-portal');
 if (!fs.existsSync(join(rootDir, '.env'))) {
   console.error(
     chalk.red(
-      '❌ .env file not found! Please copy env.example to .env and configure it.'
-    )
+      '❌ .env file not found! Please copy env.example to .env and configure it.',
+    ),
   );
   process.exit(1);
 }
@@ -28,6 +36,8 @@ let adminPortalProcess: ChildProcess | null = null;
 let mcpServerReady = false;
 let adminPortalReady = false;
 let showLogs = false;
+let mcpServerRestartCount = 0;
+let lastMcpServerExit = 0;
 
 const logBuffer: { source: string; message: string; type: 'info' | 'error' }[] =
   [];
@@ -49,7 +59,7 @@ function showBanner() {
       margin: 1,
       borderStyle: 'round',
       borderColor: 'blue',
-    }
+    },
   );
 
   console.log(banner);
@@ -57,11 +67,11 @@ function showBanner() {
   console.log(chalk.bold('\n📋 Services Status:'));
   console.log(
     chalk.gray('├─') +
-      ` MCP Server: ${mcpServerReady ? chalk.green('✓ Running') : chalk.yellow('⏳ Starting...')} ${chalk.gray('(port 3000)')}`
+      ` MCP Server: ${mcpServerReady ? chalk.green('✓ Running') : chalk.yellow('⏳ Starting...')} ${chalk.gray('(port 3000)')}`,
   );
   console.log(
     chalk.gray('└─') +
-      ` Admin Portal: ${adminPortalReady ? chalk.green('✓ Running') : chalk.yellow('⏳ Starting...')} ${chalk.gray('(port 3001)')}\n`
+      ` Admin Portal: ${adminPortalReady ? chalk.green('✓ Running') : chalk.yellow('⏳ Starting...')} ${chalk.gray('(port 3001)')}\n`,
   );
 
   console.log(chalk.bold('🛠️  Available Actions:'));
@@ -69,17 +79,17 @@ function showBanner() {
   console.log(chalk.gray('├─') + ` ${chalk.yellow('a')} - Open Admin Portal`);
   console.log(
     chalk.gray('├─') +
-      ` ${chalk.yellow('l')} - ${showLogs ? 'Hide' : 'Show'} service logs`
+      ` ${chalk.yellow('l')} - ${showLogs ? 'Hide' : 'Show'} service logs`,
   );
   console.log(chalk.gray('├─') + ` ${chalk.yellow('c')} - Clear screen`);
   console.log(
-    chalk.gray('├─') + ` ${chalk.yellow('r')} - Restart all services`
+    chalk.gray('├─') + ` ${chalk.yellow('r')} - Restart all services`,
   );
   console.log(
-    chalk.gray('├─') + ` ${chalk.yellow('m')} - Restart MCP server only`
+    chalk.gray('├─') + ` ${chalk.yellow('m')} - Restart MCP server only`,
   );
   console.log(
-    chalk.gray('├─') + ` ${chalk.yellow('p')} - Restart Admin portal only`
+    chalk.gray('├─') + ` ${chalk.yellow('p')} - Restart Admin portal only`,
   );
   console.log(chalk.gray('└─') + ` ${chalk.yellow('q')} - Quit\n`);
 
@@ -88,7 +98,7 @@ function showBanner() {
     console.log(chalk.gray('─'.repeat(80)));
 
     const recentLogs = logBuffer.slice(-15);
-    recentLogs.forEach((log) => {
+    recentLogs.forEach(log => {
       const prefix =
         log.type === 'error'
           ? chalk.red(`[${log.source}]`)
@@ -99,23 +109,23 @@ function showBanner() {
     console.log(chalk.gray('─'.repeat(80)));
     console.log(
       chalk.gray(
-        `Showing ${recentLogs.length} of ${logBuffer.length} logs. Press 'l' to hide.\n`
-      )
+        `Showing ${recentLogs.length} of ${logBuffer.length} logs. Press 'l' to hide.\n`,
+      ),
     );
   }
 
   if (!showLogs && mcpServerReady && adminPortalReady) {
     console.log(chalk.green('✨ All services are running!'));
     console.log(
-      chalk.gray('├─') + ` MCP Server: ${chalk.cyan('http://localhost:3000')}`
+      chalk.gray('├─') + ` MCP Server: ${chalk.cyan('http://localhost:3000')}`,
     );
     console.log(
       chalk.gray('├─') +
-        ` SSE Endpoint: ${chalk.cyan('http://localhost:3000/stream')}`
+        ` SSE Endpoint: ${chalk.cyan('http://localhost:3000/stream')}`,
     );
     console.log(
       chalk.gray('└─') +
-        ` Admin Portal: ${chalk.cyan('http://localhost:3001')}\n`
+        ` Admin Portal: ${chalk.cyan('http://localhost:3001')}\n`,
     );
     console.log(chalk.gray('💡 Press any key from the menu above...'));
   }
@@ -124,7 +134,7 @@ function showBanner() {
 function addLog(
   source: string,
   message: string,
-  type: 'info' | 'error' = 'info'
+  type: 'info' | 'error' = 'info',
 ) {
   logBuffer.push({ source, message, type });
   if (logBuffer.length > MAX_LOGS) {
@@ -151,7 +161,7 @@ function startMCPServer() {
     },
   });
 
-  mcpServerProcess.stdout?.on('data', (data) => {
+  mcpServerProcess.stdout?.on('data', data => {
     const output = data.toString();
     const lines = output.split('\n').filter((line: string) => line.trim());
 
@@ -169,7 +179,7 @@ function startMCPServer() {
     });
   });
 
-  mcpServerProcess.stderr?.on('data', (data) => {
+  mcpServerProcess.stderr?.on('data', data => {
     const output = data.toString();
     const lines = output.split('\n').filter((line: string) => line.trim());
 
@@ -186,16 +196,55 @@ function startMCPServer() {
     });
   });
 
-  mcpServerProcess.on('exit', (code) => {
+  mcpServerProcess.on('exit', (code, signal) => {
     mcpServerReady = false;
-    addLog('MCP Server', `Process exited with code ${code}`, 'error');
+    const now = Date.now();
+    const timeSinceLastExit = now - lastMcpServerExit;
+    lastMcpServerExit = now;
+
+    addLog(
+      'MCP Server',
+      `Process exited with code ${code} and signal ${signal}`,
+      'error',
+    );
+
+    if (code === 0) {
+      addLog('MCP Server', 'Process exited cleanly but unexpectedly', 'error');
+
+      if (timeSinceLastExit < 10000) {
+        mcpServerRestartCount++;
+        addLog(
+          'MCP Server',
+          `Rapid exit detected (${timeSinceLastExit}ms). Restart count: ${mcpServerRestartCount}`,
+          'error',
+        );
+
+        if (mcpServerRestartCount >= 3) {
+          addLog(
+            'MCP Server',
+            'Too many rapid restarts. Stopping auto-restart. Check logs and restart manually with "m"',
+            'error',
+          );
+          showBanner();
+          return;
+        }
+      } else {
+        mcpServerRestartCount = 0;
+      }
+    }
+
+    showBanner();
+  });
+
+  mcpServerProcess.on('error', error => {
+    mcpServerReady = false;
+    addLog('MCP Server', `Process error: ${error.message}`, 'error');
     showBanner();
   });
 }
 
 function startAdminPortal() {
   addLog('System', 'Starting Admin Portal...', 'info');
-
 
   if (!fs.existsSync(join(adminPortalDir, 'package.json'))) {
     addLog('Admin Portal', 'Admin portal not found or not set up', 'error');
@@ -209,7 +258,7 @@ function startAdminPortal() {
     env: { ...process.env },
   });
 
-  adminPortalProcess.stdout?.on('data', (data) => {
+  adminPortalProcess.stdout?.on('data', data => {
     const output = data.toString();
     const lines = output.split('\n').filter((line: string) => line.trim());
 
@@ -223,7 +272,7 @@ function startAdminPortal() {
     });
   });
 
-  adminPortalProcess.stderr?.on('data', (data) => {
+  adminPortalProcess.stderr?.on('data', data => {
     const output = data.toString();
     const lines = output.split('\n').filter((line: string) => line.trim());
 
@@ -236,16 +285,14 @@ function startAdminPortal() {
     });
   });
 
-  adminPortalProcess.on('exit', (code) => {
+  adminPortalProcess.on('exit', code => {
     adminPortalReady = false;
     addLog('Admin Portal', `Process exited with code ${code}`, 'error');
     showBanner();
   });
 }
 
-
 showBanner();
-
 
 startMCPServer();
 setTimeout(() => {
@@ -256,11 +303,10 @@ if (process.stdin.isTTY) {
   process.stdin.setRawMode(true);
 }
 
-process.stdin.on('data', async (key) => {
+process.stdin.on('data', async key => {
   const keyStr = key.toString();
 
   if (keyStr === 'q' || keyStr === '\x03') {
-
     console.log(chalk.yellow('\n\n👋 Shutting down all services...'));
     mcpServerProcess?.kill();
     adminPortalProcess?.kill();
@@ -280,7 +326,7 @@ process.stdin.on('data', async (key) => {
     case 'i':
       if (!mcpServerReady) {
         console.log(
-          chalk.yellow('\n⏳ Please wait for MCP server to start...')
+          chalk.yellow('\n⏳ Please wait for MCP server to start...'),
         );
         setTimeout(() => showBanner(), 2000);
         return;
@@ -293,10 +339,10 @@ process.stdin.on('data', async (key) => {
         {
           stdio: 'inherit',
           shell: true,
-        }
+        },
       );
 
-      inspector.on('error', (err) => {
+      inspector.on('error', err => {
         console.error(chalk.red('Failed to start inspector:'), err);
       });
       break;
@@ -304,7 +350,7 @@ process.stdin.on('data', async (key) => {
     case 'a':
       if (!adminPortalReady) {
         console.log(
-          chalk.yellow('\n⏳ Please wait for Admin Portal to start...')
+          chalk.yellow('\n⏳ Please wait for Admin Portal to start...'),
         );
         setTimeout(() => showBanner(), 2000);
         return;
@@ -328,6 +374,8 @@ process.stdin.on('data', async (key) => {
       adminPortalProcess?.kill();
       mcpServerReady = false;
       adminPortalReady = false;
+      mcpServerRestartCount = 0; // Reset restart count on manual restart
+      lastMcpServerExit = 0;
       logBuffer.length = 0;
 
       setTimeout(() => {
@@ -341,6 +389,8 @@ process.stdin.on('data', async (key) => {
       console.log(chalk.yellow('\n🔄 Restarting MCP server...'));
       mcpServerProcess?.kill();
       mcpServerReady = false;
+      mcpServerRestartCount = 0; // Reset restart count on manual restart
+      lastMcpServerExit = 0;
 
       setTimeout(() => {
         startMCPServer();
@@ -358,7 +408,6 @@ process.stdin.on('data', async (key) => {
       break;
   }
 });
-
 
 process.on('SIGINT', () => {
   console.log(chalk.yellow('\n\n👋 Shutting down all services...'));

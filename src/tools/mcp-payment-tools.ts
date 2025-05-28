@@ -40,7 +40,7 @@ export function createPaymentTools(
 
   return [
     {
-      name: 'create_payment_transaction',
+      name: 'purchase_credits',
       description: 'Creates an unsigned HBAR transfer transaction for purchasing credits',
       inputSchema: {
         type: 'object',
@@ -62,7 +62,7 @@ export function createPaymentTools(
       },
       handler: async (args: unknown) => {
         const params = CreatePaymentSchema.parse(args);
-        
+
         const result = await paymentTools.createPaymentTransaction({
           payerAccountId: params.payer_account_id,
           amount: params.amount,
@@ -94,9 +94,9 @@ export function createPaymentTools(
       },
       handler: async (args: unknown) => {
         const params = VerifyPaymentSchema.parse(args);
-        
+
         const success = await paymentTools.verifyAndProcessPayment(params.transaction_id);
-        
+
         if (success) {
           const status = await paymentTools.getPaymentStatus(params.transaction_id);
           return {
@@ -129,9 +129,9 @@ export function createPaymentTools(
       },
       handler: async (args: unknown) => {
         const params = PaymentStatusSchema.parse(args);
-        
+
         const status = await paymentTools.getPaymentStatus(params.transaction_id);
-        
+
         return {
           transaction_id: params.transaction_id,
           status: status.status,
@@ -159,12 +159,25 @@ export function createPaymentTools(
       },
       handler: async (args: any) => {
         const accountId = args.account_id;
-        
+
         return {
           account_id: accountId,
           total_payments: 0,
           payments: []
         };
+      }
+    },
+    {
+      name: 'get_pricing_configuration',
+      description: 'Gets pricing configuration including operation costs, tiers, and modifiers',
+      inputSchema: {
+        type: 'object',
+        properties: {},
+        required: []
+      },
+      handler: async () => {
+        const result = await paymentTools.getPricingConfiguration();
+        return result;
       }
     }
   ];

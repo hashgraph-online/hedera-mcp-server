@@ -69,6 +69,9 @@ services:
         - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
         - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://mcp-server:3000}
         - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+        - NEXT_PUBLIC_MCP_SERVER_URL=${NEXT_PUBLIC_MCP_SERVER_URL:-http://localhost:3000/stream}
+        - NEXT_PUBLIC_MCP_INSPECTOR_ENABLED=${NEXT_PUBLIC_MCP_INSPECTOR_ENABLED:-false}
+        - NEXT_PUBLIC_MCP_INSPECTOR_URL=${NEXT_PUBLIC_MCP_INSPECTOR_URL:-http://127.0.0.1:6274}
         - BUILDKIT_INLINE_CACHE=1
     image: hedera-admin-portal:latest
     container_name: hedera-admin-portal
@@ -80,6 +83,9 @@ services:
       - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
       - NEXT_PUBLIC_API_BASE_URL=${NEXT_PUBLIC_API_BASE_URL:-http://mcp-server:3002}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3001}
+      - NEXT_PUBLIC_MCP_SERVER_URL=${NEXT_PUBLIC_MCP_SERVER_URL:-http://localhost:3000/stream}
+      - NEXT_PUBLIC_MCP_INSPECTOR_ENABLED=${NEXT_PUBLIC_MCP_INSPECTOR_ENABLED:-false}
+      - NEXT_PUBLIC_MCP_INSPECTOR_URL=${NEXT_PUBLIC_MCP_INSPECTOR_URL:-http://127.0.0.1:6274}
       - MCP_SERVER_URL=http://mcp-server:3000/stream
     restart: unless-stopped
     logging: *default-logging

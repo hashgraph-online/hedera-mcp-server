@@ -5,7 +5,15 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/auth/AuthProvider";
 import { Wallet, LogOut } from "lucide-react";
 
-export function ConnectWallet() {
+interface ConnectWalletProps {}
+
+/**
+ * Wallet connection button component that displays connection state and allows connect/disconnect
+ * Shows account ID when connected and provides disconnect functionality
+ * @param {ConnectWalletProps} props - Component props (currently unused)
+ * @returns {JSX.Element} Connect/disconnect button with appropriate state display
+ */
+export function ConnectWallet({}: ConnectWalletProps) {
   const { isConnected, user, connect, disconnect, isLoading } = useAuth();
 
   if (isConnected && user) {

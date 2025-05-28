@@ -75,6 +75,13 @@ export const metadata: Metadata = {
   description: "Manage your Hedera server credits and balance",
 };
 
+/**
+ * Root layout component that wraps the entire application
+ * Provides global styling, font configuration, and authentication context
+ * @param {Object} props - Layout props
+ * @param {React.ReactNode} props.children - Child components to render within the layout
+ * @returns {JSX.Element} The root HTML structure with authentication provider
+ */
 export default function RootLayout({
   children,
 }: Readonly<{

@@ -13,6 +13,9 @@ const ServerConfigSchema = z.object({
     .default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
+  AUTH_API_PORT: z.string().default('3003').transform(Number),
+  HTTP_API_PORT: z.string().default('3002').transform(Number),
+
   HEDERA_NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),
   HEDERA_OPERATOR_ID: z.string().min(1, 'Hedera operator ID is required'),
   HEDERA_OPERATOR_KEY: z
@@ -25,12 +28,12 @@ const ServerConfigSchema = z.object({
   ENABLE_HCS10: z
     .string()
     .default('true')
-    .transform((val) => val === 'true'),
+    .transform(val => val === 'true'),
 
   FORCE_REREGISTER: z
     .string()
     .default('false')
-    .transform((val) => val === 'true'),
+    .transform(val => val === 'true'),
 
   PROFILE_CACHE_MINUTES: z.string().default('60').transform(Number),
 
@@ -38,7 +41,7 @@ const ServerConfigSchema = z.object({
   AGENT_DESCRIPTION: z
     .string()
     .default(
-      'FastMCP-powered server providing Hedera network operations with credits system'
+      'FastMCP-powered server providing Hedera network operations with credits system',
     ),
   AGENT_TYPE: z.enum(['autonomous', 'manual']).default('manual'),
   AGENT_MODEL: z.string().default('mcp-server-v1'),
@@ -46,11 +49,11 @@ const ServerConfigSchema = z.object({
   AGENT_CAPABILITIES: z
     .string()
     .default('0,1,4,5,11,14')
-    .transform((val) =>
+    .transform(val =>
       val
         .split(',')
         .map(Number)
-        .filter((n) => !isNaN(n))
+        .filter(n => !isNaN(n)),
     ),
 
   AGENT_PROFILE_PICTURE: z.string().optional(),
@@ -60,27 +63,34 @@ const ServerConfigSchema = z.object({
   AGENT_HBAR_FEE: z
     .string()
     .optional()
-    .transform((val) => (val ? Number(val) : undefined)),
+    .transform(val => (val ? Number(val) : undefined)),
   AGENT_TOKEN_FEE: z.string().optional(),
   AGENT_EXEMPT_ACCOUNTS: z
     .string()
     .optional()
-    .transform((val) =>
+    .transform(val =>
       val
         ? val
             .split(',')
-            .map((s) => s.trim())
-            .filter((s) => s.length > 0)
-        : undefined
+            .map(s => s.trim())
+            .filter(s => s.length > 0)
+        : undefined,
     ),
 
   PERSIST_AGENT_DATA: z
     .string()
     .default('true')
-    .transform((val) => val === 'true'),
+    .transform(val => val === 'true'),
   AGENT_DATA_PREFIX: z.string().default('AGENT'),
 
   DATABASE_URL: z.string().min(1, 'Database URL is required'),
+  DATABASE_TYPE: z.enum(['sqlite', 'postgres']).default('sqlite').optional(),
+
+  REQUIRE_AUTH: z
+    .string()
+    .default('true')
+    .transform(val => val === 'true'),
+  API_KEY_ENCRYPTION_KEY: z.string().optional(),
 
   CREDITS_CONVERSION_RATE: z.string().default('1000').transform(Number),
   CREDITS_MINIMUM_PAYMENT: z.string().default('1').transform(Number),
@@ -98,7 +108,7 @@ const ServerConfigSchema = z.object({
   SERVER_BIO: z
     .string()
     .default(
-      'FastMCP-powered server providing Hedera network operations with credits system'
+      'FastMCP-powered server providing Hedera network operations with credits system',
     ),
 
   VERIFICATION_TYPE: z.enum(['dns', 'signature', 'challenge']).default('dns'),
@@ -108,7 +118,7 @@ const ServerConfigSchema = z.object({
   ENABLE_METRICS: z
     .string()
     .default('false')
-    .transform((val) => val === 'true'),
+    .transform(val => val === 'true'),
   METRICS_PORT: z.string().default('9100').transform(Number),
 });
 
@@ -117,7 +127,7 @@ export type ServerConfig = z.infer<typeof ServerConfigSchema>;
 export class ConfigurationError extends Error {
   constructor(
     message: string,
-    public errors: z.ZodError
+    public errors: z.ZodError,
   ) {
     super(message);
     this.name = 'ConfigurationError';
@@ -129,7 +139,16 @@ export class ConfigurationError extends Error {
  */
 export function loadServerConfig(): ServerConfig {
   try {
-    const config = ServerConfigSchema.parse(process.env);
+    const env = { ...process.env };
+    if (!env.DATABASE_TYPE && env.DATABASE_URL) {
+      if (env.DATABASE_URL.startsWith('postgres')) {
+        env.DATABASE_TYPE = 'postgres';
+      } else if (env.DATABASE_URL.startsWith('sqlite')) {
+        env.DATABASE_TYPE = 'sqlite';
+      }
+    }
+
+    const config = ServerConfigSchema.parse(env);
 
     validateDualModeConfig(config);
 
@@ -137,12 +156,12 @@ export function loadServerConfig(): ServerConfig {
   } catch (error) {
     if (error instanceof z.ZodError) {
       const errorMessage = error.issues
-        .map((issue) => `${issue.path.join('.')}: ${issue.message}`)
+        .map(issue => `${issue.path.join('.')}: ${issue.message}`)
         .join('\n');
 
       throw new ConfigurationError(
         `Configuration validation failed:\n${errorMessage}`,
-        error
+        error,
       );
     }
     throw error;
@@ -161,7 +180,7 @@ function validateDualModeConfig(config: ServerConfig): void {
 
   if (config.SERVER_ACCOUNT_ID === config.HEDERA_OPERATOR_ID) {
     logger.warn(
-      'SERVER_ACCOUNT_ID and HEDERA_OPERATOR_ID are the same. Consider using separate accounts for security.'
+      'SERVER_ACCOUNT_ID and HEDERA_OPERATOR_ID are the same. Consider using separate accounts for security.',
     );
   }
 
@@ -173,7 +192,7 @@ function validateDualModeConfig(config: ServerConfig): void {
       isNaN(Number(parts[1]))
     ) {
       throw new Error(
-        'AGENT_TOKEN_FEE must be in format "tokenId:amount" (e.g., "0.0.123456:10")'
+        'AGENT_TOKEN_FEE must be in format "tokenId:amount" (e.g., "0.0.123456:10")',
       );
     }
   }
@@ -185,7 +204,7 @@ function validateDualModeConfig(config: ServerConfig): void {
     config.AGENT_PROFILE_PICTURE_URL.length > 0
   ) {
     logger.warn(
-      'Both AGENT_PROFILE_PICTURE and AGENT_PROFILE_PICTURE_URL are set. AGENT_PROFILE_PICTURE will take precedence.'
+      'Both AGENT_PROFILE_PICTURE and AGENT_PROFILE_PICTURE_URL are set. AGENT_PROFILE_PICTURE will take precedence.',
     );
   }
 }
@@ -196,7 +215,7 @@ function validateDualModeConfig(config: ServerConfig): void {
  * @returns Parsed token fee object or undefined if invalid
  */
 export function parseTokenFee(
-  tokenFeeString?: string
+  tokenFeeString?: string,
 ): { tokenId: string; amount: number } | undefined {
   if (!tokenFeeString || tokenFeeString.trim().length === 0) return undefined;
 

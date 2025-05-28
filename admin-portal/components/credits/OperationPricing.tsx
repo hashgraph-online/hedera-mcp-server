@@ -11,6 +11,8 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Loader2 } from 'lucide-react';
 import { Logger } from '@hashgraphonline/standards-sdk';
+import { getMCPClient } from '@/lib/mcp-client';
+import { useAuth } from '@/components/auth/AuthProvider';
 
 interface OperationPricing {
   operationName: string;
@@ -26,45 +28,40 @@ interface PricingData {
 }
 
 const OPERATION_DESCRIPTIONS: Record<string, string> = {
-  health_check: 'System health check',
-  get_server_info: 'Get server information',
-  get_balance: 'Check credit balance',
-  get_account_info: 'Query account information',
-  get_transaction_info: 'Query transaction details',
-  refresh_profile: 'Refresh HCS-11 profile',
-  query_balance: 'Query Hedera account balance',
-  generate_transaction_bytes: 'Generate transaction bytes',
-  create_token: 'Create fungible token',
-  schedule_transaction: 'Create scheduled transaction',
-  execute_transaction: 'Execute transaction directly',
-  create_nft: 'Create NFT collection',
-  mint_nft: 'Mint NFT',
-  smart_contract_call: 'Call smart contract function',
-  multi_sig_transaction: 'Multi-signature transaction',
-  batch_transactions: 'Batch transaction processing',
-  deploy_contract: 'Deploy smart contract',
-  consensus_submit_large: 'Submit large consensus message',
+  health_check: 'Check server health and status',
+  get_server_info: 'Get server configuration and capabilities',
+  check_credit_balance: 'Check credit balance for your authenticated account',
+  get_credit_history: 'Get credit transaction history',
+  purchase_credits: 'Purchase credits using HBAR',
+  verify_payment: 'Verify payment transaction and allocate credits',
+  check_payment_status: 'Check the status of a payment transaction',
+  get_payment_history: 'Get payment history for an account',
+  get_pricing_configuration: 'Get pricing configuration including costs and tiers',
+  process_hbar_payment: 'Manually process an HBAR payment for credit allocation',
+  refresh_profile: 'Refresh server HCS-11 profile and registration status',
+  generate_transaction_bytes: 'Generate transaction bytes for any Hedera operation without execution',
+  schedule_transaction: 'Create scheduled transaction for any Hedera operation',
+  execute_transaction: 'Execute any Hedera transaction immediately',
 };
 
-const OPERATION_CATEGORIES: Record<string, 'free' | 'basic' | 'standard' | 'premium' | 'enterprise'> = {
+const OPERATION_CATEGORIES: Record<
+  string,
+  'free' | 'basic' | 'standard' | 'premium' | 'enterprise'
+> = {
   health_check: 'free',
   get_server_info: 'free',
-  get_balance: 'free',
-  get_account_info: 'basic',
-  get_transaction_info: 'basic',
+  check_credit_balance: 'free',
+  get_credit_history: 'free',
+  purchase_credits: 'free',
+  verify_payment: 'free',
+  check_payment_status: 'free',
+  get_payment_history: 'free',
+  get_pricing_configuration: 'free',
+  process_hbar_payment: 'free',
   refresh_profile: 'basic',
-  query_balance: 'basic',
   generate_transaction_bytes: 'standard',
-  create_token: 'standard',
   schedule_transaction: 'standard',
-  execute_transaction: 'standard',
-  create_nft: 'premium',
-  mint_nft: 'premium',
-  smart_contract_call: 'premium',
-  multi_sig_transaction: 'premium',
-  batch_transactions: 'enterprise',
-  deploy_contract: 'enterprise',
-  consensus_submit_large: 'enterprise',
+  execute_transaction: 'premium',
 };
 
 const CATEGORY_COLORS = {
@@ -77,45 +74,122 @@ const CATEGORY_COLORS = {
 
 interface OperationPricingProps {}
 
+/**
+ * Component that displays operation pricing information for MCP server operations
+ * Shows credit costs organized by category with dynamic pricing data fetching
+ * @param props - Component props (currently unused)
+ * @returns Operation pricing display with categorized operations and costs
+ */
 export function OperationPricing({}: OperationPricingProps) {
   const logger = new Logger({ module: 'OperationPricing' });
+  const { apiKey } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pricingData, setPricingData] = useState<PricingData | null>(null);
   const [operations, setOperations] = useState<OperationPricing[]>([]);
 
   useEffect(() => {
     fetchPricingData();
-  }, []);
+  }, [apiKey]);
 
   /**
-   * Fetches pricing data from the API
+   * Fetches pricing data using the authenticated MCP client with fallback to HTTP API
+   * @returns {Promise<void>} Promise that resolves when pricing data is loaded
    */
   async function fetchPricingData() {
     try {
       setLoading(true);
-      const baseUrl = process.env.NEXT_PUBLIC_MCP_SERVER_URL?.replace('/stream', '') || 'http://localhost:3000';
-      const response = await fetch(`${baseUrl}/api/credits/pricing`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch pricing data');
+
+      let data: PricingData;
+
+      if (apiKey) {
+        try {
+          const mcpClient = getMCPClient();
+          mcpClient.setApiKey(apiKey);
+          await mcpClient.connect();
+
+          const result = (await mcpClient.callTool(
+            'get_pricing_configuration',
+            {},
+          )) as any;
+
+          if (result) {
+            if (result.content && result.content[0]) {
+              data = result.content[0]?.text
+                ? JSON.parse(result.content[0].text)
+                : result.content[0];
+            } else if (result.operations) {
+              data = result;
+            } else {
+              throw new Error('No pricing data received from MCP');
+            }
+          } else {
+            throw new Error('No pricing data received from MCP');
+          }
+        } catch (mcpError) {
+          logger.warn('MCP call failed, falling back to HTTP API', {
+            error: mcpError,
+          });
+
+          const httpApiUrl =
+            process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+          const response = await fetch(`${httpApiUrl}/api/credits/pricing`);
+
+          if (!response.ok) {
+            throw new Error('Failed to fetch pricing data from HTTP API');
+          }
+
+          data = await response.json();
+        }
+      } else {
+        const httpApiUrl =
+          process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
+        const response = await fetch(`${httpApiUrl}/api/credits/pricing`);
+
+        if (!response.ok) {
+          throw new Error('Failed to fetch pricing data');
+        }
+
+        data = await response.json();
       }
 
-      const data: PricingData = await response.json();
       setPricingData(data);
 
-      const ops: OperationPricing[] = Object.entries(data.operations).map(([name, cost]) => ({
-        operationName: name,
-        category: OPERATION_CATEGORIES[name] || 'standard',
-        baseCost: cost,
-        description: OPERATION_DESCRIPTIONS[name] || name,
-      }));
+      let ops: OperationPricing[];
+      
+      if (Array.isArray(data.operations)) {
+        ops = data.operations.map((op: any) => ({
+          operationName: op.operationName,
+          category: OPERATION_CATEGORIES[op.operationName] || 'standard',
+          baseCost: op.baseCost,
+          description: OPERATION_DESCRIPTIONS[op.operationName] || op.description || op.operationName,
+        }));
+      } else {
+        ops = Object.entries(data.operations).map(
+          ([name, cost]) => ({
+            operationName: name,
+            category: OPERATION_CATEGORIES[name] || 'standard',
+            baseCost: cost as number,
+            description: OPERATION_DESCRIPTIONS[name] || name,
+          }),
+        );
+      }
 
-      setOperations(ops.sort((a, b) => {
-        const categoryOrder = ['free', 'basic', 'standard', 'premium', 'enterprise'];
-        const catCompare = categoryOrder.indexOf(a.category) - categoryOrder.indexOf(b.category);
-        if (catCompare !== 0) return catCompare;
-        return a.baseCost - b.baseCost;
-      }));
+      setOperations(
+        ops.sort((a, b) => {
+          const categoryOrder = [
+            'free',
+            'basic',
+            'standard',
+            'premium',
+            'enterprise',
+          ];
+          const catCompare =
+            categoryOrder.indexOf(a.category) -
+            categoryOrder.indexOf(b.category);
+          if (catCompare !== 0) return catCompare;
+          return a.baseCost - b.baseCost;
+        }),
+      );
     } catch (error) {
       logger.error('Failed to fetch pricing data', { error });
     } finally {
@@ -123,7 +197,13 @@ export function OperationPricing({}: OperationPricingProps) {
     }
   }
 
-  const categories = ['free', 'basic', 'standard', 'premium', 'enterprise'] as const;
+  const categories = [
+    'free',
+    'basic',
+    'standard',
+    'premium',
+    'enterprise',
+  ] as const;
 
   if (loading) {
     return (
@@ -138,13 +218,15 @@ export function OperationPricing({}: OperationPricingProps) {
   return (
     <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-hedera-purple/20">
       <CardHeader>
-        <CardTitle className="text-2xl font-black hedera-gradient-text">Operation Pricing</CardTitle>
+        <CardTitle className="text-2xl font-black hedera-gradient-text">
+          Operation Pricing
+        </CardTitle>
         <CardDescription>
           Credit costs for different MCP operations
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        {categories.map((category) => {
+        {categories.map(category => {
           const categoryOps = operations.filter(op => op.category === category);
           if (categoryOps.length === 0) return null;
 
@@ -155,12 +237,16 @@ export function OperationPricing({}: OperationPricingProps) {
                   {category}
                 </Badge>
                 <span className="text-sm text-gray-500">
-                  ({categoryOps[0].baseCost === 0 ? 'Free' : `${categoryOps[0].baseCost}-${categoryOps[categoryOps.length - 1].baseCost} credits`})
+                  (
+                  {categoryOps[0].baseCost === 0
+                    ? 'Free'
+                    : `${categoryOps[0].baseCost}-${categoryOps[categoryOps.length - 1].baseCost} credits`}
+                  )
                 </span>
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {categoryOps.map((op) => (
+                {categoryOps.map(op => (
                   <div
                     key={op.operationName}
                     className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700"
@@ -177,7 +263,9 @@ export function OperationPricing({}: OperationPricingProps) {
                       <span className="font-bold text-lg text-hedera-purple">
                         {op.baseCost}
                       </span>
-                      <span className="text-xs text-gray-500 ml-1">credits</span>
+                      <span className="text-xs text-gray-500 ml-1">
+                        credits
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -190,10 +278,11 @@ export function OperationPricing({}: OperationPricingProps) {
           <div className="mt-8 p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
             <h4 className="font-bold text-sm mb-2">Pricing Modifiers</h4>
             <ul className="space-y-1 text-xs text-gray-600 dark:text-gray-400">
-              <li>• Bulk operations (100+): 5% discount</li>
-              <li>• Peak hours (9-11am, 2-4pm): 20% surcharge</li>
-              <li>• Network congestion: Dynamic pricing applies</li>
-              <li>• Loyalty discounts: 2-10% based on total usage</li>
+              <li>• Bulk operations (10+): 20% discount</li>
+              <li>• Peak hours (2-10pm UTC): 20% surcharge</li>
+              <li>• Mainnet operations: 20-50% surcharge</li>
+              <li>• Loyalty discounts: 5-20% based on total credits used</li>
+              <li>• Current HBAR/USD rate: {pricingData.currentHbarToUsdRate ? `$${pricingData.currentHbarToUsdRate.toFixed(4)}` : 'Market rate'}</li>
             </ul>
           </div>
         )}

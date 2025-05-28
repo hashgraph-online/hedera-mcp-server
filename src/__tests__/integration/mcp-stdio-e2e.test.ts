@@ -2,22 +2,41 @@ import { describe, it, expect, beforeAll, afterAll } from '@jest/globals';
 import { MCPTransportClient } from './mcp-transport-utils';
 import { Logger } from '@hashgraphonline/standards-sdk';
 import { TestEnvironment } from './test-utils';
+import { setupTestDatabase } from '../test-db-setup';
+import { randomBytes } from 'crypto';
+import path from 'path';
+import fs from 'fs';
+import Database from 'better-sqlite3';
 
 describe('MCP STDIO Transport E2E Tests', () => {
   let mcpClient: MCPTransportClient;
   let testEnv: TestEnvironment;
+  let sqlite: Database.Database;
+  let tempDbPath: string;
   const TEST_TIMEOUT = 60000;
+  
   beforeAll(async () => {
+    const logger = Logger.getInstance({ module: 'test-stdio' });
+    
+    tempDbPath = path.join(__dirname, `../../../test-db-${Date.now()}-${randomBytes(3).toString('hex')}.sqlite`);
+    const databaseUrl = `sqlite://${tempDbPath}`;
+    
+    sqlite = await setupTestDatabase(databaseUrl, logger);
+    if (!sqlite) {
+      throw new Error('Failed to setup test database');
+    }
+    
     testEnv = new TestEnvironment({
       network: 'testnet',
       creditsConversionRate: 1000,
     });
     await testEnv.setup();
+    
     mcpClient = new MCPTransportClient(
       {
         type: 'stdio',
         env: {
-          DATABASE_URL: process.env.DATABASE_URL || 'sqlite://test.db',
+          DATABASE_URL: databaseUrl,
           HEDERA_NETWORK: 'testnet',
           SERVER_ACCOUNT_ID: process.env.SERVER_ACCOUNT_ID || '0.0.123456',
           SERVER_PRIVATE_KEY: process.env.SERVER_PRIVATE_KEY || 'test-key',
@@ -25,7 +44,7 @@ describe('MCP STDIO Transport E2E Tests', () => {
           LOG_LEVEL: 'error',
         },
       },
-      Logger.getInstance({ module: 'test-stdio' })
+      logger
     );
     await mcpClient.start();
   }, TEST_TIMEOUT);
@@ -36,6 +55,14 @@ describe('MCP STDIO Transport E2E Tests', () => {
     if (testEnv) {
       await testEnv.cleanup();
     }
+    if (sqlite) {
+      sqlite.close();
+    }
+    try {
+      if (tempDbPath && fs.existsSync(tempDbPath)) {
+        fs.unlinkSync(tempDbPath);
+      }
+    } catch (err) {}
   }, TEST_TIMEOUT);
   it(
     'should initialize and get server info',

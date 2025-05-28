@@ -5,9 +5,9 @@ import { CreditManagerFactory } from '../../db/credit-manager-factory';
 import { PaymentTools } from '../../tools/payment-tools';
 import { Client, PrivateKey, Transaction } from '@hashgraph/sdk';
 import { loadServerConfig } from '../../config/server-config';
-import { runMigrations } from '../../db/migrate';
 import * as fs from 'fs/promises';
 import * as path from 'path';
+import { setupTestDatabase } from '../test-db-setup';
 
 describe('Payment Crash Investigation', () => {
   let creditManager: any;
@@ -22,7 +22,6 @@ describe('Payment Crash Investigation', () => {
     logger = Logger.getInstance({ module: 'PaymentCrashTest', level: 'info' });
     logger.info('Initializing Credit Service...');
     
-    // Setup test database
     testDbPath = path.join(process.cwd(), `test-crash-${Date.now()}.db`);
     const dbUrl = `sqlite://${testDbPath}`;
     process.env.DATABASE_URL = dbUrl;
@@ -31,10 +30,8 @@ describe('Payment Crash Investigation', () => {
     testConfig = loadServerConfig();
     
     try {
-      // Run migrations first
-      await runMigrations(dbUrl, logger);
+      await setupTestDatabase(dbUrl, logger);
       
-      // Initialize HederaAgentKit
       const signer = new ServerSigner(
         testConfig.HEDERA_OPERATOR_ID,
         testConfig.HEDERA_OPERATOR_KEY,
@@ -43,7 +40,6 @@ describe('Payment Crash Investigation', () => {
       hederaKit = new HederaAgentKit(signer, {}, 'directExecution');
       await hederaKit.initialize();
       
-      // Use CreditManagerFactory to create credit manager
       creditManager = await CreditManagerFactory.create(
         testConfig,
         hederaKit,
@@ -58,7 +54,6 @@ describe('Payment Crash Investigation', () => {
         testConfig.CREDITS_CONVERSION_RATE
       );
       
-      // Setup Hedera client
       client = Client.forTestnet();
       client.setOperator(testConfig.HEDERA_OPERATOR_ID, testConfig.HEDERA_OPERATOR_KEY);
     } catch (error) {
@@ -73,15 +68,13 @@ describe('Payment Crash Investigation', () => {
     try {
       await fs.unlink(testDbPath);
     } catch (e) {
-      // Ignore
     }
   });
 
   it('should handle payment flow without crashing', async () => {
-    const paymentAmount = 0.1; // 0.1 HBAR
+    const paymentAmount = 0.1;
     
     try {
-      // Step 1: Create payment transaction
       logger.info('Creating payment transaction...');
       const paymentRequest = {
         payerAccountId: testConfig.HEDERA_OPERATOR_ID,
@@ -95,12 +88,10 @@ describe('Payment Crash Investigation', () => {
         expectedCredits: paymentResponse.expectedCredits
       });
       
-      // Check pending payment was created
       const pendingPayment = await creditManager.getHbarPayment(paymentResponse.transactionId);
       expect(pendingPayment).toBeDefined();
       expect(pendingPayment.status).toMatch(/pending|PENDING/i);
       
-      // Step 2: Execute transaction EXACTLY like frontend
       logger.info('Executing transaction from bytes...');
       const transactionBytes = Buffer.from(paymentResponse.transactionBytes, 'base64');
       const transaction = Transaction.fromBytes(transactionBytes);
@@ -114,11 +105,9 @@ describe('Payment Crash Investigation', () => {
         txId: txResponse.transactionId?.toString()
       });
       
-      // Step 3: Wait for mirror node
       logger.info('Waiting 15 seconds for mirror node...');
       await new Promise(resolve => setTimeout(resolve, 15000));
       
-      // Step 4: Verify payment - THIS IS WHERE IT CRASHES
       logger.info('Verifying payment...');
       let verifyError: any = null;
       let verifyResult = false;
@@ -133,14 +122,12 @@ describe('Payment Crash Investigation', () => {
         });
       }
       
-      // Check what happened
       if (verifyError) {
         throw new Error(`Payment verification crashed: ${verifyError.message}`);
       }
       
       expect(verifyResult).toBe(true);
       
-      // Check credits were allocated
       const balance = await creditManager.getCreditBalance(testConfig.HEDERA_OPERATOR_ID);
       logger.info('Final balance', balance);
       expect(balance.balance).toBeGreaterThan(0);
@@ -155,12 +142,10 @@ describe('Payment Crash Investigation', () => {
   }, 30000);
 
   it('should not crash when processing duplicate payment', async () => {
-    // This tests the specific crash scenario
     const testTxId = '0.0.5527744@1748297499.617863496';
     
     logger.info('Testing duplicate payment processing...');
     
-    // Create a payment record
     await creditManager.recordHbarPayment({
       transactionId: testTxId,
       payerAccountId: testConfig.HEDERA_OPERATOR_ID,
@@ -170,11 +155,9 @@ describe('Payment Crash Investigation', () => {
       timestamp: new Date().toISOString()
     });
     
-    // Try to process it twice - this might be causing the crash
     let processError: any = null;
     
     try {
-      // First process
       await creditManager.processHbarPayment({
         transactionId: testTxId,
         payerAccountId: testConfig.HEDERA_OPERATOR_ID,
@@ -184,7 +167,6 @@ describe('Payment Crash Investigation', () => {
         timestamp: new Date().toISOString()
       });
       
-      // Second process - this might crash
       await creditManager.processHbarPayment({
         transactionId: testTxId,
         payerAccountId: testConfig.HEDERA_OPERATOR_ID,
@@ -202,7 +184,6 @@ describe('Payment Crash Investigation', () => {
       });
     }
     
-    // Should not crash
     expect(processError).toBeNull();
   });
 });

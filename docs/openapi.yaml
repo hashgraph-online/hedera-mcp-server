@@ -1,0 +1,439 @@
+openapi: 3.0.3
+info:
+  title: Hedera MCP Server Authentication API
+  description: |
+    Authentication API for the Hedera Model Context Protocol (MCP) Server.
+    
+    This API provides decentralized authentication using Hedera account signatures.
+    Users authenticate by signing a challenge with their Hedera account private key,
+    which is then exchanged for an API key that can be used for subsequent requests.
+    
+    ## Authentication Flow
+    1. Request a challenge with your Hedera account ID
+    2. Sign the challenge with your private key
+    3. Submit the signature to get an API key
+    4. Use the API key as a Bearer token in subsequent requests
+    
+    ## Rate Limits
+    - Challenge endpoint: 10 requests per minute per IP
+    - Verify endpoint: 5 requests per minute per IP
+    - Other endpoints: 100 requests per minute per API key
+  version: 1.0.0
+  contact:
+    name: Hashgraph Online
+    url: https://hashgraphonline.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3002
+    description: Local development server
+  - url: https://api.hedera-mcp.com
+    description: Production server
+
+security:
+  - BearerAuth: []
+
+paths:
+  /api/auth/challenge:
+    post:
+      summary: Request authentication challenge
+      description: |
+        Generate a time-limited challenge that must be signed with your Hedera account's private key.
+        The challenge expires after 5 minutes.
+      operationId: requestChallenge
+      security: []
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChallengeRequest'
+            examples:
+              basic:
+                summary: Basic challenge request
+                value:
+                  hederaAccountId: "0.0.12345"
+      responses:
+        '200':
+          description: Challenge generated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChallengeResponse'
+              examples:
+                success:
+                  summary: Successful challenge response
+                  value:
+                    challengeId: "a1b2c3d4e5f6789012345678901234567"
+                    challenge: "Sign this message to authenticate with MCP Server\n\nChallenge: a1b2c3d4e5f6789012345678901234567\nAccount: 0.0.12345\nNetwork: testnet\nTimestamp: 2024-01-01T00:00:00.000Z"
+                    expiresAt: "2024-01-01T00:05:00.000Z"
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+
+  /api/auth/authenticate:
+    post:
+      summary: Verify signature and get API key
+      description: |
+        Submit the signed challenge to receive an API key.
+        The signature must be created using the private key of the Hedera account
+        specified in the challenge request.
+      operationId: verifySignature
+      security: []
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VerifyRequest'
+            examples:
+              basic:
+                summary: Basic verification request
+                value:
+                  challengeId: "a1b2c3d4e5f6789012345678901234567"
+                  hederaAccountId: "0.0.12345"
+                  signature: "3045022100..."
+                  publicKey: "302a300506032b6570..."
+                  timestamp: 1704067200000
+                  name: "My Development Key"
+                  permissions: ["read", "write"]
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+              examples:
+                success:
+                  summary: Successful authentication
+                  value:
+                    apiKey: "mcp_1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+                    keyId: "key_123456"
+                    expiresAt: "2024-04-01T00:00:00.000Z"
+                    permissions: ["read", "write"]
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitError'
+
+  /api/auth/key:
+    get:
+      summary: Get current API key information
+      description: Retrieve information about the currently authenticated API key
+      operationId: getApiKeyInfo
+      tags:
+        - Key Management
+      responses:
+        '200':
+          description: API key information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiKeyInfo'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/keys:
+    get:
+      summary: List all API keys for account
+      description: Retrieve all active API keys associated with your Hedera account
+      operationId: listApiKeys
+      tags:
+        - Key Management
+      responses:
+        '200':
+          description: List of API keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  keys:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKeyInfo'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/keys/rotate:
+    post:
+      summary: Rotate API key
+      description: |
+        Generate a new API key to replace the current one.
+        The old key will be immediately revoked.
+      operationId: rotateApiKey
+      tags:
+        - Key Management
+      responses:
+        '200':
+          description: Key rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RotateKeyResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/auth/keys/{keyId}:
+    delete:
+      summary: Revoke API key
+      description: |
+        Permanently revoke an API key. This action cannot be undone.
+        You cannot revoke the key you're currently using for authentication.
+      operationId: revokeApiKey
+      tags:
+        - Key Management
+      parameters:
+        - name: keyId
+          in: path
+          required: true
+          description: ID of the API key to revoke
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Key revoked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "API key revoked successfully"
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API key obtained from the authentication flow.
+        Format: `Bearer mcp_1234567890abcdef...`
+
+  schemas:
+    ChallengeRequest:
+      type: object
+      required:
+        - hederaAccountId
+      properties:
+        hederaAccountId:
+          type: string
+          pattern: '^0\.0\.\d+$'
+          description: Your Hedera account ID
+          example: "0.0.12345"
+
+    ChallengeResponse:
+      type: object
+      properties:
+        challengeId:
+          type: string
+          description: Unique identifier for this challenge
+          example: "a1b2c3d4e5f6789012345678901234567"
+        challenge:
+          type: string
+          description: The message to sign with your private key
+          example: "Sign this message to authenticate..."
+        expiresAt:
+          type: string
+          format: date-time
+          description: When this challenge expires (5 minutes from creation)
+          example: "2024-01-01T00:05:00.000Z"
+
+    VerifyRequest:
+      type: object
+      required:
+        - challengeId
+        - hederaAccountId
+        - signature
+        - publicKey
+        - timestamp
+      properties:
+        challengeId:
+          type: string
+          description: The challenge ID from the challenge response
+        hederaAccountId:
+          type: string
+          pattern: '^0\.0\.\d+$'
+          description: Your Hedera account ID
+        signature:
+          type: string
+          description: Hex-encoded signature of the challenge message
+        publicKey:
+          type: string
+          description: DER-encoded public key of your Hedera account
+        timestamp:
+          type: integer
+          format: int64
+          description: Current timestamp in milliseconds
+        name:
+          type: string
+          description: Optional name for the API key
+          example: "My Development Key"
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Optional permissions for the API key (defaults to ["*"])
+          example: ["read", "write"]
+        expiresIn:
+          type: integer
+          description: Optional expiration time in seconds
+          example: 2592000
+
+    AuthResponse:
+      type: object
+      properties:
+        apiKey:
+          type: string
+          description: Your API key (only shown once, store it securely)
+          example: "mcp_1234567890abcdef..."
+        keyId:
+          type: string
+          description: Unique identifier for this API key
+          example: "key_123456"
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this API key expires (null for non-expiring keys)
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Permissions granted to this API key
+
+    ApiKeyInfo:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the API key
+        hederaAccountId:
+          type: string
+          description: Associated Hedera account ID
+        name:
+          type: string
+          nullable: true
+          description: Name of the API key
+        permissions:
+          type: array
+          items:
+            type: string
+          description: Permissions granted to this API key
+        lastUsed:
+          type: string
+          format: date-time
+          nullable: true
+          description: Last time this key was used
+        usageCount:
+          type: integer
+          description: Number of times this key has been used
+        createdAt:
+          type: string
+          format: date-time
+          description: When this key was created
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When this key expires
+
+    RotateKeyResponse:
+      type: object
+      properties:
+        apiKey:
+          type: string
+          description: Your new API key (only shown once)
+        keyId:
+          type: string
+          description: ID of the new API key
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the new key expires
+        message:
+          type: string
+          description: Success message
+          example: "API key rotated successfully. The old key will be revoked."
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Error message
+          example: "Invalid signature"
+        code:
+          type: string
+          description: Error code for programmatic handling
+          example: "INVALID_SIGNATURE"
+        details:
+          type: object
+          description: Additional error details
+
+    RateLimitError:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Too many requests"
+        message:
+          type: string
+          example: "Rate limit exceeded. Please try again later."
+        retryAfter:
+          type: integer
+          description: Seconds until rate limit resets
+          example: 60

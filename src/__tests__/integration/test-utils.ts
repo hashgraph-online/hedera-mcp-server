@@ -1,8 +1,8 @@
 import { HederaMCPServer } from '../../server/fastmcp-server';
 import { CreditManagerFactory } from '../../db/credit-manager-factory';
 import { CreditManagerBase } from '../../db/credit-manager-base';
-import { runMigrations } from '../../db/migrate';
 import { Logger } from '@hashgraphonline/standards-sdk';
+import { setupTestDatabase } from '../test-db-setup';
 import { loadServerConfig, type ServerConfig } from '../../config/server-config';
 import { HederaAgentKit, ServerSigner } from '@hashgraphonline/hedera-agent-kit';
 import { PrivateKey, AccountId, Client, TransferTransaction, Hbar, AccountCreateTransaction, AccountBalanceQuery } from '@hashgraph/sdk';
@@ -10,6 +10,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { randomBytes } from 'crypto';
 import * as dotenv from 'dotenv';
+import { PortManager } from '../test-utils/port-manager';
 dotenv.config();
 export interface TestServerOptions {
   usePostgres?: boolean;
@@ -50,7 +51,7 @@ export class TestEnvironment {
     }
     process.env.CREDITS_CONVERSION_RATE = String(options.creditsConversionRate || 1000);
     process.env.MCP_TRANSPORT = options.transport || 'stdio';
-    process.env.PORT = String(options.httpPort || 3000);
+    process.env.PORT = String(options.httpPort || PortManager.getPort());
     this.serverConfig = loadServerConfig();
   }
   /**
@@ -68,7 +69,8 @@ export class TestEnvironment {
       module: 'test',
       prettyPrint: false
     });
-    await runMigrations(process.env.DATABASE_URL, logger);
+    
+    await setupTestDatabase(process.env.DATABASE_URL!, logger);
     const signer = new ServerSigner(
       this.serverConfig.HEDERA_OPERATOR_ID,
       this.serverConfig.HEDERA_OPERATOR_KEY,
