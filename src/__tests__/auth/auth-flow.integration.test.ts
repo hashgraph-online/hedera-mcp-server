@@ -142,7 +142,6 @@ describe('Authentication Flow Integration', () => {
         '\x19Hedera Signed Message:\n' + message.length + message;
       const signature = testPrivateKey.sign(Buffer.from(prefixedMessage));
 
-      const { proto } = await import('@hashgraph/proto');
       const sigPair = new proto.SignaturePair();
       sigPair.ed25519 = signature;
 
@@ -227,7 +226,6 @@ describe('Authentication Flow Integration', () => {
         '\x19Hedera Signed Message:\n' + message.length + message;
       const signature = wrongKey.sign(Buffer.from(prefixedMessage));
 
-      const { proto } = await import('@hashgraph/proto');
       const sigPair = new proto.SignaturePair();
       sigPair.ed25519 = signature;
 

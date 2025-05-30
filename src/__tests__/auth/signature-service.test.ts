@@ -146,7 +146,7 @@ describe('SignatureService Integration Tests', () => {
         '\x19Hedera Signed Message:\n' + message.length + message;
       const wrongSignature = wrongPrivateKey.sign(Buffer.from(prefixedMessage));
 
-      const { proto } = await import('@hashgraph/proto');
+
       const sigPair = new proto.SignaturePair();
       sigPair.ed25519 = wrongSignature;
 
@@ -185,7 +185,7 @@ describe('SignatureService Integration Tests', () => {
         '\x19Hedera Signed Message:\n' + message.length + message;
       const signature = differentPrivateKey.sign(Buffer.from(prefixedMessage));
 
-      const { proto } = await import('@hashgraph/proto');
+
       const sigPair = new proto.SignaturePair();
       sigPair.ed25519 = signature;
 
@@ -242,7 +242,7 @@ describe('SignatureService Integration Tests', () => {
         '\x19Hedera Signed Message:\n' + message.length + message;
       const signature = testPrivateKey.sign(Buffer.from(prefixedMessage));
 
-      const { proto } = await import('@hashgraph/proto');
+
       const sigPair = new proto.SignaturePair();
       sigPair.ed25519 = signature;
 

@@ -157,8 +157,8 @@ export class HttpApiServer {
         apiKeyId: keyDetails.id,
         endpoint: req.path,
         method: req.method,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip || '',
+        userAgent: req.headers['user-agent'] || '',
       });
 
       next();
@@ -211,7 +211,7 @@ export class HttpApiServer {
       this.authMiddleware.bind(this),
       async (req: Request & { user?: any }, res: Response) => {
         try {
-          const keyInfo = await this.apiKeyService.getApiKeyById(req.user.id);
+          const keyInfo = await this.apiKeyService.getApiKeysByAccount(req.user.hederaAccountId);
           if (!keyInfo) {
             res.status(404).json({ error: 'API key not found' });
             return;

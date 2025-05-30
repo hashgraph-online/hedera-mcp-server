@@ -4,7 +4,8 @@ import {
   AccountId,
   TransactionId,
 } from '@hashgraph/sdk';
-import { Logger, type NetworkType } from '@hashgraphonline/standards-sdk';
+import { Logger } from '@hashgraphonline/standards-sdk';
+import type { NetworkType } from '@hashgraphonline/standards-sdk';
 import { CreditManagerBase } from '../db/credit-manager-base';
 import { HederaMirrorNode } from '@hashgraphonline/standards-sdk';
 import {
@@ -79,7 +80,7 @@ export class PaymentTools {
       );
       const transactionId = frozenTx.transactionId?.toString() || '';
 
-      const networkType = this.network === 'testnet' ? NetworkType.TESTNET : NetworkType.MAINNET;
+      const networkType: NetworkType = this.network === 'testnet' ? 'testnet' : 'mainnet';
       this.logger.debug('Getting HBAR to USD rate', { networkType });
       const hbarToUsdRate = await getHbarToUsdRate(networkType);
       const expectedCredits = calculateCreditsForHbar(amount, hbarToUsdRate);

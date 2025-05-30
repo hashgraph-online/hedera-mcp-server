@@ -24,7 +24,7 @@ export interface AuditLoggerConfig {
   logDir?: string;
   maxFileSize?: number;
   retentionDays?: number;
-  webhookUrl?: string;
+  webhookUrl?: string | undefined;
 }
 
 /**
@@ -35,7 +35,7 @@ export class AuditLogger {
   private logDir: string;
   private maxFileSize: number;
   private retentionDays: number;
-  private webhookUrl?: string;
+  private webhookUrl: string | undefined;
   private currentLogFile?: string;
   private writeStream?: fs.FileHandle;
 
@@ -84,8 +84,8 @@ export class AuditLogger {
       eventType: 'auth.challenge',
       timestamp: new Date().toISOString(),
       accountId,
-      ipAddress,
-      userAgent,
+      ipAddress: ipAddress || '',
+      userAgent: userAgent || '',
       severity: 'info'
     });
   }
@@ -104,9 +104,9 @@ export class AuditLogger {
       eventType: success ? 'auth.success' : 'auth.failure',
       timestamp: new Date().toISOString(),
       accountId,
-      ipAddress,
-      userAgent,
-      details: reason ? { reason } : undefined,
+      ipAddress: ipAddress || '',
+      userAgent: userAgent || '',
+      details: reason ? { reason } : {},
       severity: success ? 'info' : 'warn'
     });
   }
@@ -125,7 +125,7 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       accountId,
       apiKeyId,
-      details,
+      details: details || {},
       severity: eventType === 'key.suspended' ? 'warn' : 'info'
     });
   }
@@ -150,8 +150,8 @@ export class AuditLogger {
       endpoint,
       method,
       statusCode,
-      requestId,
-      ipAddress,
+      requestId: requestId || '',
+      ipAddress: ipAddress || '',
       severity: 'info'
     });
   }
@@ -171,8 +171,8 @@ export class AuditLogger {
       timestamp: new Date().toISOString(),
       endpoint,
       method,
-      ipAddress,
-      userAgent,
+      ipAddress: ipAddress || '',
+      userAgent: userAgent || '',
       details: { reason },
       severity: 'warn'
     });

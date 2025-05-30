@@ -27,7 +27,7 @@ import {
 
 type CreditPackage = (typeof CREDIT_PACKAGES)[number];
 
-interface CreditPurchaseProps {}
+const logger = new Logger({ module: 'CreditPurchase' });
 
 /**
  * Component that handles credit purchases with tiered pricing and custom amounts
@@ -35,8 +35,7 @@ interface CreditPurchaseProps {}
  * @param props - Component props (currently unused)
  * @returns Credit purchase interface with package selection and payment processing
  */
-export function CreditPurchase({}: CreditPurchaseProps) {
-  const logger = new Logger({ module: 'CreditPurchase' });
+export function CreditPurchase() {
   const { user, refreshBalance, sdk, apiKey, authenticate, isConnected } =
     useAuth();
   const [selectedPackage, setSelectedPackage] = useState<CreditPackage | null>(
@@ -128,7 +127,6 @@ export function CreditPurchase({}: CreditPurchaseProps) {
 
     try {
       const mcpClient = getMCPClient();
-      await mcpClient.connect();
 
       const result = await mcpClient.callTool('check_pending_payments', {
         accountId: user.accountId,
@@ -213,16 +211,14 @@ export function CreditPurchase({}: CreditPurchaseProps) {
 
       const mcpClient = getMCPClient();
 
-      if (apiKey) {
-        mcpClient.setApiKey(apiKey);
-      } else {
+      if (!apiKey) {
         setError('API key not found. Please authenticate first.');
         setTransactionStatus('failed');
         setIsPurchasing(false);
         return;
       }
 
-      await mcpClient.connect();
+      mcpClient.setApiKey(apiKey);
 
       const paymentData = await mcpClient.createPaymentTransaction(
         user.accountId,

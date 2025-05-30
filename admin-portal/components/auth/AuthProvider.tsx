@@ -14,6 +14,7 @@ import { HederaMirrorNode, Logger } from '@hashgraphonline/standards-sdk';
 import type { AuthState, User } from '@/types/auth';
 import { getApiClient, AuthenticationError } from '@/lib/api-client';
 import { MCPAuthClient } from '@/lib/auth/mcp-auth-client';
+import { getMCPClient } from '@/lib/mcp-client';
 
 interface AuthContextValue extends AuthState {
   connect: () => Promise<void>;
@@ -79,11 +80,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         let creditData = { balance: 0, totalPurchased: 0, totalConsumed: 0 };
         if (authState.apiKey) {
           try {
-            creditData = await apiClient.getCreditBalance(accountId);
+            const mcpClient = getMCPClient();
+            mcpClient.setApiKey(authState.apiKey);
+            const mcpBalance = await mcpClient.getCreditBalance(accountId);
+            creditData = {
+              balance: mcpBalance.current,
+              totalPurchased: mcpBalance.totalPurchased,
+              totalConsumed: mcpBalance.totalConsumed,
+            };
           } catch (error) {
-            if (error instanceof AuthenticationError) {
-              setAuthState(prev => ({ ...prev, apiKey: null }));
-              apiClient.setApiKey(null);
+            logger.error('Failed to fetch credit balance from MCP', { error });
+            try {
+              creditData = await apiClient.getCreditBalance(accountId);
+            } catch (apiError) {
+              if (apiError instanceof AuthenticationError) {
+                setAuthState(prev => ({ ...prev, apiKey: null }));
+                apiClient.setApiKey(null);
+                const mcpClient = getMCPClient();
+                mcpClient.setApiKey(null);
+              }
             }
           }
         }
@@ -114,9 +129,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
           }));
           const apiClient = getApiClient();
           apiClient.setApiKey(null);
+          const mcpClient = getMCPClient();
+          mcpClient.setApiKey(null);
         } else {
           logger.error('Failed to fetch user data', { error });
           setAuthState(prev => ({ ...prev, isLoading: false }));
+        }
+      } finally {
+        if (authState.apiKey) {
+          const mcpClient = getMCPClient();
+          mcpClient.setApiKey(authState.apiKey);
         }
       }
     },
@@ -145,14 +167,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setMcpAuthClient(authClient);
 
         const storedApiKey = authClient.getStoredApiKey();
-        console.log('Checking for stored API key:', !!storedApiKey);
         if (storedApiKey) {
-          console.log('Restoring stored API key to auth state');
           setAuthState(prev => ({ ...prev, apiKey: storedApiKey }));
           const apiClient = getApiClient();
           apiClient.setApiKey(storedApiKey);
+          const mcpClient = getMCPClient();
+          mcpClient.setApiKey(storedApiKey);
         } else {
-          console.log('No stored API key found');
         }
 
         const mirrorNodeLogger = Logger.getInstance({
@@ -176,10 +197,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
             accountId: accountResponse.accountId,
           });
 
-          const authClient = new MCPAuthClient(
-            accountResponse.accountId,
-            instance,
-          );
+          const authClient = new MCPAuthClient({ sdk: instance });
           setMcpAuthClient(authClient);
 
           await fetchUserData(accountResponse.accountId);
@@ -218,7 +236,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
 
         if (!mcpAuthClient) {
-          const authClient = new MCPAuthClient(response.accountId, sdk);
+          const authClient = new MCPAuthClient({ sdk });
           setMcpAuthClient(authClient);
         }
 
@@ -264,13 +282,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const authResponse = await mcpAuthClient.authenticate({
         name: 'Credit Purchase',
         permissions: ['credits:read', 'credits:write'],
-        expiresIn: 24 * 60 * 60, // 24 hours in seconds
+        expiresIn: 24 * 60 * 60,
       });
 
-      console.log(
-        'Setting new API key in auth state:',
-        authResponse.apiKey.substring(0, 8) + '...',
-      );
       setAuthState(prev => ({ ...prev, apiKey: authResponse.apiKey }));
 
       const apiClient = getApiClient();
@@ -295,10 +309,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const checkStoredKey = () => {
         const storedKey = mcpAuthClient.getStoredApiKey();
         if (storedKey && storedKey !== authState.apiKey) {
-          console.log('Restoring missing API key from storage');
           setAuthState(prev => ({ ...prev, apiKey: storedKey }));
           const apiClient = getApiClient();
           apiClient.setApiKey(storedKey);
+          const mcpClient = getMCPClient();
+          mcpClient.setApiKey(storedKey);
         }
       };
 

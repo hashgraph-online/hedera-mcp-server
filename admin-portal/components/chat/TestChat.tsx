@@ -37,6 +37,11 @@ interface Message {
   transactionBytes?: string;
 }
 
+interface ExecutionResult {
+  transactionId: string;
+  [key: string]: unknown;
+}
+
 type TestChatProps = Record<string, never>;
 
 type MCPTool =
@@ -87,7 +92,7 @@ function formatTransactionBytesResponse(result: any): string {
     }
 
     if (notes.length > 0) {
-      content += `**Configuration:**\n${notes.map(note => `• ${note}`).join('\n')}\n\n`;
+      content += `**Configuration:**\n${notes.map((note: string) => `• ${note}`).join('\n')}\n\n`;
     }
 
     content += `**Transaction Bytes:**\n\`\`\`\n${bytes}\n\`\`\`\n\n`;
@@ -175,23 +180,28 @@ function formatCreditBalanceResponse(result: any): string {
 
 function formatPricingResponse(result: any): string {
   if (result.operations) {
-    const operations = Array.isArray(result.operations)
+    interface Operation {
+      operationName: string;
+      baseCost: number;
+    }
+
+    const operations: Operation[] = Array.isArray(result.operations)
       ? result.operations
       : Object.entries(result.operations).map(([name, cost]) => ({
           operationName: name,
-          baseCost: cost,
+          baseCost: cost as number,
         }));
 
     let content = `📊 **Operation Pricing**\n\n`;
 
     const categories = {
-      free: operations.filter(op => op.baseCost === 0),
-      paid: operations.filter(op => op.baseCost > 0),
+      free: operations.filter((op: Operation) => op.baseCost === 0),
+      paid: operations.filter((op: Operation) => op.baseCost > 0),
     };
 
     if (categories.free.length > 0) {
       content += `**Free Operations:**\n`;
-      categories.free.forEach(op => {
+      categories.free.forEach((op: Operation) => {
         content += `• ${op.operationName}: Free\n`;
       });
       content += `\n`;
@@ -200,8 +210,8 @@ function formatPricingResponse(result: any): string {
     if (categories.paid.length > 0) {
       content += `**Paid Operations:**\n`;
       categories.paid
-        .sort((a, b) => a.baseCost - b.baseCost)
-        .forEach(op => {
+        .sort((a: Operation, b: Operation) => a.baseCost - b.baseCost)
+        .forEach((op: Operation) => {
           content += `• ${op.operationName}: ${op.baseCost} credits\n`;
         });
       content += `\n`;
@@ -235,7 +245,8 @@ function TransactionExecuteButton({
 }) {
   const { sdk, isConnected } = useAuth();
   const [isExecuting, setIsExecuting] = useState(false);
-  const [executionResult, setExecutionResult] = useState<unknown>(null);
+  const [executionResult, setExecutionResult] =
+    useState<ExecutionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const executeTransaction = async () => {
@@ -261,7 +272,6 @@ function TransactionExecuteButton({
       }
 
       const receipt = result.result;
-      console.log('receipt', receipt, transaction);
       const executionResponse = {
         transactionId: transaction?.transactionId?.toString() || 'Unknown',
         status: receipt?.status?.toString() || 'SUCCESS',
@@ -378,7 +388,12 @@ export function TestChat({}: TestChatProps) {
         if (msg.id === messageId) {
           return {
             ...msg,
-            result: { ...msg.result, executionResult: result },
+            result: {
+              ...(typeof msg.result === 'object' && msg.result !== null
+                ? msg.result
+                : {}),
+              executionResult: result,
+            },
           };
         }
         return msg;
@@ -457,17 +472,6 @@ export function TestChat({}: TestChatProps) {
       const mcpClient = getMCPClient();
       mcpClient.setApiKey(apiKey);
 
-      console.log('MCP Client status before connect:', {
-        connected: mcpClient.connected,
-        apiKey: !!apiKey,
-      });
-
-      if (!mcpClient.connected) {
-        console.log('Connecting MCP client...');
-        await mcpClient.connect();
-        console.log('MCP client connected:', mcpClient.connected);
-      }
-
       let params: Record<string, string> = {};
 
       if (
@@ -492,7 +496,8 @@ export function TestChat({}: TestChatProps) {
       const formattedContent = formatResponse(parsedResult, selectedTool);
 
       const transactionBytes =
-        parsedResult.transactionBytes || parsedResult.result?.transactionBytes;
+        (parsedResult as any)?.transactionBytes ||
+        (parsedResult as any)?.result?.transactionBytes;
 
       setMessages(prev =>
         prev.map(msg =>
@@ -500,7 +505,7 @@ export function TestChat({}: TestChatProps) {
             ? {
                 ...msg,
                 content: formattedContent,
-                status: parsedResult.error ? 'error' : 'success',
+                status: (parsedResult as any)?.error ? 'error' : 'success',
                 result: parsedResult,
                 transactionBytes: transactionBytes,
               }
@@ -543,7 +548,7 @@ export function TestChat({}: TestChatProps) {
   };
 
   return (
-    <Card className="bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl border border-hedera-purple/10 shadow-xl flex flex-col h-[800px] max-h-[100vh]">
+    <Card className="bg-card backdrop-blur-xl border border-hedera-purple/10 shadow-xl flex flex-col h-[800px] max-h-[100vh]">
       <CardHeader className="flex-shrink-0 border-b border-hedera-purple/10 pb-4">
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -552,10 +557,10 @@ export function TestChat({}: TestChatProps) {
                 <Bot className="w-5 h-5 text-hedera-purple" />
               </div>
               <div className="min-w-0">
-                <h4 className="font-bold text-gray-900 dark:text-white truncate">
+                <h4 className="font-bold text-primary truncate">
                   MCP Test Interface
                 </h4>
-                <p className="text-xs text-gray-500 truncate">
+                <p className="text-xs text-secondary truncate">
                   Natural language processing enabled
                 </p>
               </div>
@@ -580,7 +585,7 @@ export function TestChat({}: TestChatProps) {
                   className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                     isActive
                       ? 'bg-gradient-to-r from-hedera-purple to-hedera-blue text-white shadow-sm'
-                      : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      : 'bg-tertiary text-primary hover:bg-secondary'
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -632,8 +637,8 @@ export function TestChat({}: TestChatProps) {
                   message.role === 'user'
                     ? 'bg-gradient-to-br from-hedera-purple to-hedera-blue text-white'
                     : message.role === 'system'
-                      ? 'bg-gray-100 dark:bg-gray-700'
-                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700'
+                      ? 'bg-tertiary'
+                      : 'bg-card border border-primary'
                 } rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-md`}
               >
                 {message.role === 'user' && message.tool && (
@@ -642,7 +647,7 @@ export function TestChat({}: TestChatProps) {
                   </div>
                 )}
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs sm:text-sm whitespace-pre-wrap break-words flex-1 overflow-hidden">
+                  <p className="text-xs sm:text-sm whitespace-pre-wrap break-words flex-1 overflow-hidden text-inherit">
                     {message.content}
                   </p>
                   {message.status === 'sending' && (
@@ -652,27 +657,24 @@ export function TestChat({}: TestChatProps) {
                     <AlertCircle className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 flex-shrink-0" />
                   )}
                   {message.status === 'success' &&
-                    message.role === 'assistant' &&
-                    message.result && (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="p-0.5 sm:p-1 h-auto"
-                        onClick={() =>
-                          copyToClipboard(
-                            JSON.stringify(message.result, null, 2),
-                          )
-                        }
-                      >
-                        <Copy className="w-3 h-3" />
-                      </Button>
-                    )}
+                  message.role === 'assistant' &&
+                  message.result ? (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="p-0.5 sm:p-1 h-auto"
+                      onClick={() =>
+                        copyToClipboard(JSON.stringify(message.result, null, 2))
+                      }
+                    >
+                      <Copy className="w-3 h-3" />
+                    </Button>
+                  ) : null}
                 </div>
                 <div className="text-xs opacity-60 mt-1">
                   {message.timestamp.toLocaleTimeString()}
                 </div>
 
-                {/* Transaction execution button for generate_transaction_bytes */}
                 {message.role === 'assistant' &&
                   message.transactionBytes &&
                   message.status === 'success' && (
@@ -700,7 +702,7 @@ export function TestChat({}: TestChatProps) {
                   <Bot className="w-3 h-3 sm:w-4 sm:h-4" />
                 </AvatarFallback>
               </Avatar>
-              <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-md">
+              <div className="bg-card border border-primary rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-md">
                 <div className="flex items-center gap-2">
                   <Loader2 className="w-4 h-4 animate-spin" />
                   <span className="text-sm">

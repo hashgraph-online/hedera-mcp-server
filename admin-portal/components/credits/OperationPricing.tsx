@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -25,6 +25,7 @@ interface PricingData {
   operations: Record<string, number>;
   tiers: any[];
   modifiers: any;
+  currentHbarToUsdRate?: number;
 }
 
 const OPERATION_DESCRIPTIONS: Record<string, string> = {
@@ -36,10 +37,13 @@ const OPERATION_DESCRIPTIONS: Record<string, string> = {
   verify_payment: 'Verify payment transaction and allocate credits',
   check_payment_status: 'Check the status of a payment transaction',
   get_payment_history: 'Get payment history for an account',
-  get_pricing_configuration: 'Get pricing configuration including costs and tiers',
-  process_hbar_payment: 'Manually process an HBAR payment for credit allocation',
+  get_pricing_configuration:
+    'Get pricing configuration including costs and tiers',
+  process_hbar_payment:
+    'Manually process an HBAR payment for credit allocation',
   refresh_profile: 'Refresh server HCS-11 profile and registration status',
-  generate_transaction_bytes: 'Generate transaction bytes for any Hedera operation without execution',
+  generate_transaction_bytes:
+    'Generate transaction bytes for any Hedera operation without execution',
   schedule_transaction: 'Create scheduled transaction for any Hedera operation',
   execute_transaction: 'Execute any Hedera transaction immediately',
 };
@@ -65,137 +69,124 @@ const OPERATION_CATEGORIES: Record<
 };
 
 const CATEGORY_COLORS = {
-  free: 'bg-green-100 text-green-800 border-green-200',
-  basic: 'bg-blue-100 text-blue-800 border-blue-200',
-  standard: 'bg-purple-100 text-purple-800 border-purple-200',
-  premium: 'bg-orange-100 text-orange-800 border-orange-200',
-  enterprise: 'bg-red-100 text-red-800 border-red-200',
+  free: 'bg-green-50 text-green dark:bg-green-900/20 border-green-200 dark:border-green-800',
+  basic:
+    'bg-blue-50 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+  standard:
+    'bg-hedera-purple bg-opacity-10 text-hedera-purple border-hedera-purple border-opacity-20',
+  premium: 'bg-orange-900/20 text-orange border-orange border-opacity-20',
+  enterprise:
+    'bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-400 border-red-200',
 };
 
-interface OperationPricingProps {}
-
+const logger = new Logger({ module: 'OperationPricing' });
 /**
  * Component that displays operation pricing information for MCP server operations
  * Shows credit costs organized by category with dynamic pricing data fetching
  * @param props - Component props (currently unused)
  * @returns Operation pricing display with categorized operations and costs
  */
-export function OperationPricing({}: OperationPricingProps) {
-  const logger = new Logger({ module: 'OperationPricing' });
+export function OperationPricing({}) {
   const { apiKey } = useAuth();
   const [loading, setLoading] = useState(true);
   const [pricingData, setPricingData] = useState<PricingData | null>(null);
   const [operations, setOperations] = useState<OperationPricing[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchPricingData();
-  }, [apiKey]);
+    const fetchPricingData = async () => {
+      try {
+        setLoading(true);
 
-  /**
-   * Fetches pricing data using the authenticated MCP client with fallback to HTTP API
-   * @returns {Promise<void>} Promise that resolves when pricing data is loaded
-   */
-  async function fetchPricingData() {
-    try {
-      setLoading(true);
+        let data: PricingData;
 
-      let data: PricingData;
+        const mcpClient = getMCPClient();
 
-      if (apiKey) {
+        if (!apiKey) {
+          return;
+        }
+
+        mcpClient.setApiKey(apiKey);
+
         try {
-          const mcpClient = getMCPClient();
-          mcpClient.setApiKey(apiKey);
-          await mcpClient.connect();
+          const result = await mcpClient.getPricingConfiguration();
 
-          const result = (await mcpClient.callTool(
-            'get_pricing_configuration',
-            {},
-          )) as any;
-
-          if (result) {
-            if (result.content && result.content[0]) {
-              data = result.content[0]?.text
-                ? JSON.parse(result.content[0].text)
-                : result.content[0];
-            } else if (result.operations) {
-              data = result;
-            } else {
-              throw new Error('No pricing data received from MCP');
-            }
-          } else {
+          if (!result) {
             throw new Error('No pricing data received from MCP');
           }
-        } catch (mcpError) {
-          logger.warn('MCP call failed, falling back to HTTP API', {
-            error: mcpError,
-          });
 
-          const httpApiUrl =
-            process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
-          const response = await fetch(`${httpApiUrl}/api/credits/pricing`);
-
-          if (!response.ok) {
-            throw new Error('Failed to fetch pricing data from HTTP API');
+          if (result && typeof result === 'object' && 'error' in result) {
+            throw new Error(String(result.error));
           }
 
-          data = await response.json();
+          data = result;
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          logger.error('Failed to fetch pricing data from MCP', {
+            error,
+            message: errorMessage,
+          });
+          throw error;
         }
-      } else {
-        const httpApiUrl =
-          process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3002';
-        const response = await fetch(`${httpApiUrl}/api/credits/pricing`);
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch pricing data');
+        setPricingData(data);
+
+        let ops: OperationPricing[];
+
+        if (!data.operations) {
+          throw new Error('Invalid pricing data structure');
         }
 
-        data = await response.json();
-      }
-
-      setPricingData(data);
-
-      let ops: OperationPricing[];
-      
-      if (Array.isArray(data.operations)) {
-        ops = data.operations.map((op: any) => ({
-          operationName: op.operationName,
-          category: OPERATION_CATEGORIES[op.operationName] || 'standard',
-          baseCost: op.baseCost,
-          description: OPERATION_DESCRIPTIONS[op.operationName] || op.description || op.operationName,
-        }));
-      } else {
-        ops = Object.entries(data.operations).map(
-          ([name, cost]) => ({
+        if (Array.isArray(data.operations)) {
+          ops = data.operations.map((op: OperationPricing) => ({
+            operationName: op.operationName,
+            category: OPERATION_CATEGORIES[op.operationName] || 'standard',
+            baseCost: op.baseCost,
+            description:
+              OPERATION_DESCRIPTIONS[op.operationName] ||
+              op.description ||
+              op.operationName,
+          }));
+        } else {
+          ops = Object.entries(data.operations).map(([name, cost]) => ({
             operationName: name,
             category: OPERATION_CATEGORIES[name] || 'standard',
             baseCost: cost as number,
             description: OPERATION_DESCRIPTIONS[name] || name,
+          }));
+        }
+
+        setOperations(
+          ops.sort((a, b) => {
+            const categoryOrder = [
+              'free',
+              'basic',
+              'standard',
+              'premium',
+              'enterprise',
+            ];
+            const catCompare =
+              categoryOrder.indexOf(a.category) -
+              categoryOrder.indexOf(b.category);
+            if (catCompare !== 0) return catCompare;
+            return a.baseCost - b.baseCost;
           }),
         );
+        setError(null);
+      } catch (error: unknown) {
+        const errorMessage =
+          error instanceof Error ? error.message : 'Unknown error';
+        logger.error('Failed to fetch pricing data', { error });
+        setError(errorMessage || 'Failed to load pricing data');
+      } finally {
+        setLoading(false);
       }
-
-      setOperations(
-        ops.sort((a, b) => {
-          const categoryOrder = [
-            'free',
-            'basic',
-            'standard',
-            'premium',
-            'enterprise',
-          ];
-          const catCompare =
-            categoryOrder.indexOf(a.category) -
-            categoryOrder.indexOf(b.category);
-          if (catCompare !== 0) return catCompare;
-          return a.baseCost - b.baseCost;
-        }),
-      );
-    } catch (error) {
-      logger.error('Failed to fetch pricing data', { error });
-    } finally {
-      setLoading(false);
+    };
+    if (apiKey) {
+      fetchPricingData();
     }
-  }
+  }, [apiKey]);
 
   const categories = [
     'free',
@@ -210,6 +201,25 @@ export function OperationPricing({}: OperationPricingProps) {
       <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-hedera-purple/20">
         <CardContent className="flex items-center justify-center py-8">
           <Loader2 className="h-8 w-8 animate-spin text-hedera-purple" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-hedera-purple/20">
+        <CardHeader>
+          <CardTitle className="text-2xl font-black hedera-gradient-text">
+            Operation Pricing
+          </CardTitle>
+          <CardDescription className="text-red-500">{error}</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-gray-500">
+            Pricing information is temporarily unavailable. Please try again
+            later.
+          </p>
         </CardContent>
       </Card>
     );
@@ -282,7 +292,12 @@ export function OperationPricing({}: OperationPricingProps) {
               <li>• Peak hours (2-10pm UTC): 20% surcharge</li>
               <li>• Mainnet operations: 20-50% surcharge</li>
               <li>• Loyalty discounts: 5-20% based on total credits used</li>
-              <li>• Current HBAR/USD rate: {pricingData.currentHbarToUsdRate ? `$${pricingData.currentHbarToUsdRate.toFixed(4)}` : 'Market rate'}</li>
+              <li>
+                • Current HBAR/USD rate:{' '}
+                {pricingData.currentHbarToUsdRate
+                  ? `$${pricingData.currentHbarToUsdRate.toFixed(4)}`
+                  : 'Market rate'}
+              </li>
             </ul>
           </div>
         )}

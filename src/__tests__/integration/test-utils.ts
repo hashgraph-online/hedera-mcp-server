@@ -40,6 +40,7 @@ export class TestEnvironment {
   constructor(private options: TestServerOptions = {}) {
     process.env.NODE_ENV = 'test';
     process.env.LOG_LEVEL = 'error';
+    process.env.DISABLE_LOGS = 'true';
     if (options.network) process.env.HEDERA_NETWORK = options.network;
     if (options.serverAccountId) {
       process.env.HEDERA_OPERATOR_ID = options.serverAccountId;
@@ -51,7 +52,11 @@ export class TestEnvironment {
     }
     process.env.CREDITS_CONVERSION_RATE = String(options.creditsConversionRate || 1000);
     process.env.MCP_TRANSPORT = options.transport || 'stdio';
-    process.env.PORT = String(options.httpPort || PortManager.getPort());
+    const assignedPort = options.httpPort || PortManager.getPort('test-env');
+    process.env.PORT = String(assignedPort);
+    process.env.FASTMCP_PORT = String(assignedPort);
+    process.env.HTTP_API_PORT = String(assignedPort + 1);
+    process.env.AUTH_API_PORT = String(assignedPort + 2);
     this.serverConfig = loadServerConfig();
   }
   /**

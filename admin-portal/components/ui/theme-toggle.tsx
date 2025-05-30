@@ -35,10 +35,9 @@ export function ThemeToggle({}: ThemeToggleProps) {
       newTheme === "dark" || 
       (newTheme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     
+    root.classList.remove("light", "dark");
     if (isDark) {
       root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
     }
   };
 
@@ -55,18 +54,13 @@ export function ThemeToggle({}: ThemeToggleProps) {
   if (!mounted) return null;
 
   return (
-    <Button
-      variant="ghost"
-      size="icon"
+    <button
       onClick={handleThemeChange}
-      className="relative w-10 h-10 rounded-full bg-gradient-to-br from-hedera-purple/10 to-hedera-blue/10 hover:from-hedera-purple/20 hover:to-hedera-blue/20 border border-hedera-purple/20"
+      className="p-2 rounded-full hover:bg-tertiary transition-colors relative"
+      aria-label="Toggle theme"
     >
-      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all duration-300 dark:-rotate-90 dark:scale-0 text-hedera-purple" />
-      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all duration-300 dark:rotate-0 dark:scale-100 text-hedera-purple" />
-      {theme === "system" && (
-        <Monitor className="absolute h-3 w-3 bottom-0 right-0 text-hedera-blue" />
-      )}
-      <span className="sr-only">Toggle theme</span>
-    </Button>
+      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all duration-200 dark:-rotate-90 dark:scale-0" />
+      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all duration-200 dark:rotate-0 dark:scale-100 inset-0 m-auto" />
+    </button>
   );
 }

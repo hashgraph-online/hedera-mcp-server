@@ -5,26 +5,25 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg text-sm font-medium ring-offset-background transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 shadow-lg hover:shadow-xl",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap font-medium transition-opacity duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
-        default: "hedera-gradient text-white hover:brightness-110 focus:ring-2 focus:ring-hedera-purple/50",
+        default: "hashscan-button uppercase",
         destructive:
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+          "bg-red-600 text-white rounded-full hover:opacity-90",
         outline:
-          "border-2 border-hedera-purple/20 bg-transparent hover:bg-hedera-purple/5 hover:border-hedera-purple/40 text-hedera-purple dark:text-hedera-purple",
+          "border border-gray-300 dark:border-gray-700 bg-transparent rounded-md hover:bg-gray-100 dark:hover:bg-gray-800",
         secondary:
-          "hedera-gradient-green text-white hover:brightness-110",
-        ghost: "hover:bg-hedera-purple/10 hover:text-hedera-purple dark:hover:bg-hedera-purple/20 dark:hover:text-hedera-purple shadow-none",
-        link: "text-hedera-purple underline-offset-4 hover:underline shadow-none",
-        hedera: "hedera-gradient text-white hover:brightness-110 hover:scale-105 transform",
+          "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700",
+        ghost: "rounded-md hover:bg-gray-100 dark:hover:bg-gray-800",
+        link: "text-blue-600 dark:text-blue-400 underline-offset-4 hover:opacity-80",
       },
       size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-11 rounded-md px-8",
-        icon: "h-10 w-10",
+        default: "h-9 px-5 text-sm",
+        sm: "h-8 px-4 text-xs",
+        lg: "h-10 px-6 text-base",
+        icon: "h-9 w-9",
       },
     },
     defaultVariants: {
@@ -44,7 +43,7 @@ export interface ButtonProps
  * A versatile button component with multiple style variants and sizes
  * @param {ButtonProps} props - Button component props
  * @param {string} props.className - Additional CSS classes to apply
- * @param {string} props.variant - Visual style variant (default, destructive, outline, secondary, ghost, link, hedera)
+ * @param {string} props.variant - Visual style variant (default, destructive, outline, secondary, ghost, link, primary, network)
  * @param {string} props.size - Size variant (default, sm, lg, icon)
  * @param {boolean} props.asChild - Whether to render as a child slot component
  * @param {React.Ref<HTMLButtonElement>} ref - Forward ref to the button element

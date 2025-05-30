@@ -37,7 +37,6 @@ export class AnomalyDetector {
   private db: any;
   private isPostgres: boolean;
   private logger: Logger;
-  private apiKeyService: ApiKeyService;
   private thresholds: AnomalyDetectorConfig['thresholds'];
 
   constructor(config: AnomalyDetectorConfig) {
@@ -45,7 +44,6 @@ export class AnomalyDetector {
     this.db = config.db;
     this.isPostgres = config.isPostgres;
     this.logger = config.logger;
-    this.apiKeyService = config.apiKeyService;
     this.thresholds = config.thresholds;
   }
 
@@ -235,10 +233,6 @@ export class AnomalyDetector {
    * Check for unusual usage patterns
    */
   private async checkUnusualPattern(apiKeyId: string, accountId: string): Promise<AnomalyEvent | null> {
-    const apiKeyUsage = this.isPostgres
-      ? schema.pgApiKeyUsage
-      : schema.sqliteApiKeyUsage;
-
     const endpointKey = `anomaly:endpoints:${apiKeyId}`;
     const recentEndpoints = await this.redis.scard(endpointKey);
 

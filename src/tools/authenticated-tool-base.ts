@@ -115,44 +115,34 @@ export abstract class AuthenticatedToolBase {
       throw new Error('Credit manager not available');
     }
 
-    const hasCredits = await context.creditManager.checkCredits(
+    const hasCredits = await context.creditManager.checkSufficientCredits(
       accountId,
       this.name,
-      'directExecution'
+      {}
     );
 
     if (!hasCredits) {
       throw new Error('Insufficient credits');
     }
 
-    let transactionId: string | undefined;
-    
     try {
-      transactionId = await context.creditManager.startCreditTransaction(
-        accountId,
-        this.name,
-        'directExecution'
-      );
-
       const result = await this.executeImpl(params, accountId, context);
 
-      await context.creditManager.completeCreditTransaction(
-        transactionId,
-        true,
-        result
-      );
+      const operationCost = await context.creditManager.getOperationCost(this.name);
+      const currentBalance = await context.creditManager.getCreditBalance(accountId);
+      
+      await context.creditManager.recordCreditTransaction({
+        accountId,
+        transactionType: 'consumption',
+        amount: operationCost,
+        balanceAfter: (currentBalance?.balance || 0) - operationCost,
+        description: `Consumed credits for ${this.name}`,
+        relatedOperation: this.name,
+        createdAt: new Date().toISOString()
+      });
 
       return result;
     } catch (error) {
-      if (transactionId) {
-        await context.creditManager.completeCreditTransaction(
-          transactionId,
-          false,
-          undefined,
-          error instanceof Error ? error.message : 'Unknown error'
-        );
-      }
-      
       throw error;
     }
   }

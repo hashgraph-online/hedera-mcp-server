@@ -8,7 +8,7 @@ interface CreateApiKeyOptions {
   name?: string;
   permissions?: string[];
   rateLimit?: number;
-  expiresAt?: Date;
+  expiresAt?: Date | null;
   metadata?: Record<string, any>;
 }
 
@@ -30,11 +30,7 @@ export class ApiKeyService {
   private isPostgres: boolean;
   private encryptionKey: Buffer;
 
-  constructor(
-    db: any,
-    isPostgres: boolean,
-    encryptionKey: string
-  ) {
+  constructor(db: any, isPostgres: boolean, encryptionKey: string) {
     this.db = db;
     this.isPostgres = isPostgres;
     this.encryptionKey = createHash('sha256').update(encryptionKey).digest();
@@ -51,9 +47,7 @@ export class ApiKeyService {
     const keyHash = this.hashApiKey(plainKey);
     const encryptedKey = this.encryptApiKey(plainKey);
 
-    const apiKeys = this.isPostgres
-      ? schema.pgApiKeys
-      : schema.sqliteApiKeys;
+    const apiKeys = this.isPostgres ? schema.pgApiKeys : schema.sqliteApiKeys;
 
     const apiKey = {
       id,
@@ -63,10 +57,16 @@ export class ApiKeyService {
       name: options.name || null,
       permissions: JSON.stringify(options.permissions || ['read']),
       status: 'active',
-      rateLimit: this.isPostgres ? String(options.rateLimit || 1000) : (options.rateLimit || 1000),
+      rateLimit: this.isPostgres
+        ? String(options.rateLimit || 1000)
+        : options.rateLimit || 1000,
       createdAt: this.isPostgres ? new Date() : new Date().toISOString(),
       updatedAt: this.isPostgres ? new Date() : new Date().toISOString(),
-      expiresAt: options.expiresAt ? (this.isPostgres ? options.expiresAt : options.expiresAt.toISOString()) : null,
+      expiresAt: options.expiresAt
+        ? this.isPostgres
+          ? options.expiresAt
+          : options.expiresAt.toISOString()
+        : null,
       isActive: true,
       metadata: JSON.stringify(options.metadata || {}),
     };
@@ -89,20 +89,13 @@ export class ApiKeyService {
    */
   async verifyApiKey(plainKey: string) {
     const keyHash = this.hashApiKey(plainKey);
-    
-    const apiKeys = this.isPostgres
-      ? schema.pgApiKeys
-      : schema.sqliteApiKeys;
+
+    const apiKeys = this.isPostgres ? schema.pgApiKeys : schema.sqliteApiKeys;
 
     const keys = await this.db
       .select()
       .from(apiKeys)
-      .where(
-        and(
-          eq(apiKeys.keyHash, keyHash),
-          eq(apiKeys.isActive, true)
-        )
-      )
+      .where(and(eq(apiKeys.keyHash, keyHash), eq(apiKeys.isActive, true)))
       .limit(1);
 
     const key = keys[0];
@@ -117,8 +110,8 @@ export class ApiKeyService {
 
     await this.db
       .update(apiKeys)
-      .set({ 
-        lastUsedAt: this.isPostgres ? new Date() : new Date().toISOString() 
+      .set({
+        lastUsedAt: this.isPostgres ? new Date() : new Date().toISOString(),
       })
       .where(eq(apiKeys.id, key.id));
 
@@ -144,12 +137,16 @@ export class ApiKeyService {
       apiKeyId: usage.apiKeyId,
       endpoint: usage.endpoint,
       method: usage.method,
-      statusCode: this.isPostgres 
-        ? (usage.statusCode ? String(usage.statusCode) : null)
-        : (usage.statusCode || null),
-      responseTimeMs: this.isPostgres 
-        ? (usage.responseTimeMs ? String(usage.responseTimeMs) : null)
-        : (usage.responseTimeMs || null),
+      statusCode: this.isPostgres
+        ? usage.statusCode
+          ? String(usage.statusCode)
+          : null
+        : usage.statusCode || null,
+      responseTimeMs: this.isPostgres
+        ? usage.responseTimeMs
+          ? String(usage.responseTimeMs)
+          : null
+        : usage.responseTimeMs || null,
       ipAddress: usage.ipAddress || null,
       userAgent: usage.userAgent || null,
       createdAt: this.isPostgres ? new Date() : new Date().toISOString(),
@@ -162,9 +159,7 @@ export class ApiKeyService {
    * @returns List of API keys
    */
   async getApiKeysByAccount(hederaAccountId: string) {
-    const apiKeys = this.isPostgres
-      ? schema.pgApiKeys
-      : schema.sqliteApiKeys;
+    const apiKeys = this.isPostgres ? schema.pgApiKeys : schema.sqliteApiKeys;
 
     const keys = await this.db
       .select()
@@ -186,21 +181,19 @@ export class ApiKeyService {
    * @returns True if revoked, false if not found or unauthorized
    */
   async revokeApiKey(keyId: string, hederaAccountId: string): Promise<boolean> {
-    const apiKeys = this.isPostgres
-      ? schema.pgApiKeys
-      : schema.sqliteApiKeys;
+    const apiKeys = this.isPostgres ? schema.pgApiKeys : schema.sqliteApiKeys;
 
     const result = await this.db
       .update(apiKeys)
-      .set({ 
-        isActive: false, 
-        updatedAt: this.isPostgres ? new Date() : new Date().toISOString() 
+      .set({
+        isActive: false,
+        updatedAt: this.isPostgres ? new Date() : new Date().toISOString(),
       })
       .where(
         and(
           eq(apiKeys.id, keyId),
-          eq(apiKeys.hederaAccountId, hederaAccountId)
-        )
+          eq(apiKeys.hederaAccountId, hederaAccountId),
+        ),
       );
 
     return (result?.changes || result?.rowCount || 0) > 0;
@@ -235,9 +228,7 @@ export class ApiKeyService {
    * @returns The new API key object with the plain key
    */
   async rotateApiKey(oldKeyId: string, accountId: string) {
-    const apiKeys = this.isPostgres
-      ? schema.pgApiKeys
-      : schema.sqliteApiKeys;
+    const apiKeys = this.isPostgres ? schema.pgApiKeys : schema.sqliteApiKeys;
 
     const oldKey = await this.db
       .select()
@@ -246,8 +237,8 @@ export class ApiKeyService {
         and(
           eq(apiKeys.id, oldKeyId),
           eq(apiKeys.hederaAccountId, accountId),
-          eq(apiKeys.isActive, true)
-        )
+          eq(apiKeys.isActive, true),
+        ),
       )
       .limit(1);
 
@@ -256,18 +247,20 @@ export class ApiKeyService {
     }
 
     const oldKeyData = oldKey[0];
-    
+
     const newKey = await this.generateApiKey({
       hederaAccountId: accountId,
       name: oldKeyData.name ? `${oldKeyData.name} (rotated)` : 'Rotated Key',
-      permissions: JSON.parse(oldKeyData.permissions as string || '["read"]'),
+      permissions: JSON.parse((oldKeyData.permissions as string) || '["read"]'),
       rateLimit: oldKeyData.rateLimit,
-      expiresAt: oldKeyData.expiresAt ? new Date(oldKeyData.expiresAt) : undefined,
+      expiresAt: oldKeyData.expiresAt ? new Date(oldKeyData.expiresAt) : null,
       metadata: {
-        ...(typeof oldKeyData.metadata === 'string' ? JSON.parse(oldKeyData.metadata) : oldKeyData.metadata || {}),
+        ...(typeof oldKeyData.metadata === 'string'
+          ? JSON.parse(oldKeyData.metadata)
+          : oldKeyData.metadata || {}),
         rotatedFrom: oldKeyId,
-        rotatedAt: new Date().toISOString()
-      }
+        rotatedAt: new Date().toISOString(),
+      },
     });
 
     await this.db
@@ -275,12 +268,14 @@ export class ApiKeyService {
       .set({
         isActive: false,
         metadata: JSON.stringify({
-          ...(typeof oldKeyData.metadata === 'string' ? JSON.parse(oldKeyData.metadata) : oldKeyData.metadata || {}),
+          ...(typeof oldKeyData.metadata === 'string'
+            ? JSON.parse(oldKeyData.metadata)
+            : oldKeyData.metadata || {}),
           revokedAt: new Date().toISOString(),
           revokedReason: 'rotated',
-          rotatedTo: newKey.id
+          rotatedTo: newKey.id,
         }),
-        updatedAt: this.isPostgres ? new Date() : new Date().toISOString()
+        updatedAt: this.isPostgres ? new Date() : new Date().toISOString(),
       })
       .where(eq(apiKeys.id, oldKeyId));
 
@@ -296,7 +291,7 @@ export class ApiKeyService {
       .select({ count: sql<number>`count(*)` })
       .from(apiKeys)
       .where(eq(apiKeys.isActive, true));
-    
+
     return result[0]?.count || 0;
   }
 
@@ -309,9 +304,9 @@ export class ApiKeyService {
       .select({ createdAt: apiKeys.createdAt })
       .from(apiKeys)
       .where(eq(apiKeys.isActive, true));
-    
+
     const now = Date.now();
-    return keys.map(key => {
+    return keys.map((key: any) => {
       const createdAt = new Date(key.createdAt).getTime();
       const ageMs = now - createdAt;
       return Math.floor(ageMs / (1000 * 60 * 60 * 24));

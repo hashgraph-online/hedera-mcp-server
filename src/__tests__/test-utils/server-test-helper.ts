@@ -12,6 +12,7 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import Database from 'better-sqlite3';
 import * as schema from '../../db/schema';
 import { setupTestDatabase } from '../test-db-setup';
+import fetch from 'node-fetch';
 
 export interface TestServerEnvironment {
   server: HederaMCPServer;
@@ -34,10 +35,11 @@ export async function startTestServer(options?: {
     return testServer;
   }
 
-  const port = options?.port || PortManager.getPort();
-  
-  const databaseUrl = options?.env?.DATABASE_URL || 
-    `sqlite://${options?.dbPath || path.join(os.tmpdir(), `test-mcp-${Date.now()}.db`)}`;
+  const port = options?.port || PortManager.getPort('test-server');
+
+  const databaseUrl =
+    options?.env?.DATABASE_URL ||
+    `sqlite://${options?.dbPath || path.join(os.tmpdir(), `test-mcp-${Date.now()}-${Math.random().toString(36).substring(7)}.db`)}`;
 
   const testEnv = {
     ...process.env,
@@ -47,10 +49,12 @@ export async function startTestServer(options?: {
     AUTH_API_PORT: String(port + 2),
     NODE_ENV: 'test',
     LOG_LEVEL: 'error',
+    DISABLE_LOGS: 'true',
     MCP_TRANSPORT: 'http',
-    REQUIRE_AUTH: 'true',
+    REQUIRE_AUTH: options?.env?.REQUIRE_AUTH || 'false',
     API_KEY_ENCRYPTION_KEY: 'test-encryption-key-32-characters',
     DATABASE_URL: databaseUrl,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'sk-test-key-for-testing',
     ...options?.env,
   };
 
@@ -64,7 +68,7 @@ export async function startTestServer(options?: {
     prettyPrint: false,
   });
 
-  let sqlite: Database | null = null;
+  let sqlite: Database.Database | null = null;
   if (!options?.env?.DATABASE_URL) {
     logger.info('Setting up test database...');
     sqlite = await setupTestDatabase(databaseUrl, logger);
@@ -77,16 +81,51 @@ export async function startTestServer(options?: {
 
   const server = new HederaMCPServer(config, logger);
 
-  logger.info('Initializing test server...');
-  await server.initialize();
+  try {
+    logger.info('Initializing test server...');
+    await server.initialize();
 
-  logger.info('Starting test server...');
-  await server.start();
+    logger.info('Starting test server...');
+    await server.start();
+
+    logger.info('Server start completed');
+  } catch (error) {
+    logger.error('Failed to start server', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
 
   const baseUrl = `http://localhost:${port + 1}`;
   const streamUrl = `http://localhost:${port}/stream`;
-  logger.info('Waiting for server to be ready...', { streamUrl });
-  await waitForServer(streamUrl);
+  const httpApiUrl = `http://localhost:${port + 1}/api/health`;
+  logger.info('Server ports configured', {
+    fastmcpPort: port,
+    httpApiPort: port + 1,
+    authApiPort: port + 2,
+    streamUrl,
+    httpApiUrl,
+  });
+
+  await new Promise(resolve => setTimeout(resolve, 3000));
+
+  const waitPromises = [];
+
+  waitPromises.push(waitForHttpApi(httpApiUrl, 30000));
+
+  const requireAuth = testEnv.REQUIRE_AUTH === 'true';
+  waitPromises.push(waitForServer(streamUrl, 30000, requireAuth));
+
+  try {
+    await Promise.all(waitPromises);
+    logger.info('All services ready');
+  } catch (error) {
+    logger.error('Failed to start all services', {
+      error: (error as Error).message,
+    });
+    throw error;
+  }
 
   testServer = {
     server,
@@ -117,68 +156,109 @@ export async function startTestServer(options?: {
 }
 
 /**
- * Waits for the server to be ready to accept requests using the MCP SDK
+ * Waits for the server to be ready to accept requests
  */
-async function waitForServer(
-  streamUrl: string,
+async function waitForHttpApi(
+  healthUrl: string,
   timeout = 30000,
 ): Promise<void> {
-  const logger = Logger.getInstance({ module: 'wait-server' });
+  const logger = Logger.getInstance({
+    module: 'wait-http-api',
+    level: 'error',
+  });
   const startTime = Date.now();
 
   while (Date.now() - startTime < timeout) {
-    let client: Client | null = null;
-
     try {
-      const transport = new StreamableHTTPClientTransport(
-        new URL(streamUrl),
-      ) as any;
-      client = new Client(
-        {
-          name: 'test-client',
-          version: '1.0.0',
-        },
-        {
-          capabilities: {},
-        },
-      );
-
-      await client.connect(transport);
-
-      const result = await client.callTool({
-        name: 'health_check',
-        arguments: {},
-      });
-
-      if (result) {
-        logger.info('Server is ready');
-        return;
+      const response = await fetch(healthUrl);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'ok') {
+          logger.info('HTTP API is ready');
+          return;
+        }
       }
     } catch (error) {
-      logger.warn('MCP connection failed', {
-        error: (error as Error).message,
-        streamUrl,
-      });
-    } finally {
-      if (client) {
-        try {
-          await client.close();
-        } catch (error) {
-          logger.warn('Error closing client', {
-            error: (error as Error).message,
-          });
-        }
+    }
+    await new Promise(resolve => setTimeout(resolve, 1000));
+  }
+
+  throw new Error(`HTTP API did not become ready within ${timeout}ms`);
+}
+
+async function waitForServer(
+  streamUrl: string,
+  timeout = 30000,
+  requireAuth = false,
+): Promise<void> {
+  const logger = Logger.getInstance({ module: 'wait-server', level: 'error' });
+  const startTime = Date.now();
+  let lastError: Error | null = null;
+
+  while (Date.now() - startTime < timeout) {
+    try {
+      const response = await fetch(streamUrl, {
+        method: 'GET',
+        headers: { Accept: 'text/event-stream' },
+        timeout: 5000,
+      } as any);
+
+      if (response.status === 200 || response.status === 204) {
+        logger.info('Server is ready', { streamUrl });
+        return;
+      } else if (requireAuth && (response.status === 400 || response.status === 401)) {
+        logger.info('Server is ready (auth required)', { streamUrl, status: response.status });
+        return;
+      }
+
+      if (response.status === 400 || response.status === 404) {
+        const text = await response.text();
+        logger.warn('Server returned error', {
+          status: response.status,
+          statusText: response.statusText,
+          body: text.substring(0, 200),
+        });
+      }
+
+      lastError = new Error(
+        `Server returned status ${response.status}: ${response.statusText}`,
+      );
+    } catch (error: any) {
+      lastError = error;
+      if (error.code === 'ECONNREFUSED') {
+        logger.debug('Server not ready yet, retrying...');
+      } else if (error.name === 'AbortError') {
+        logger.debug('Request timeout');
+      } else {
+        logger.debug('Connection error', {
+          error: error.message,
+          code: error.code,
+          name: error.name,
+        });
       }
     }
 
-    const waitTime = Math.min(
-      1000,
-      100 * Math.pow(2, Math.floor((Date.now() - startTime) / 1000)),
-    );
-    await new Promise(resolve => setTimeout(resolve, waitTime));
+    await new Promise(resolve => setTimeout(resolve, 1000));
   }
 
-  throw new Error(`Server did not become ready within ${timeout}ms`);
+  try {
+    const finalResponse = await fetch(streamUrl, { method: 'GET' });
+    logger.error('Final attempt response', {
+      status: finalResponse.status,
+      statusText: finalResponse.statusText,
+      headers: finalResponse.headers.raw(),
+      url: streamUrl,
+    });
+    const body = await finalResponse.text();
+    logger.error('Response body', { body: body.substring(0, 500) });
+  } catch (finalError) {
+    logger.error('Final attempt failed', { error: finalError });
+  }
+
+  const errorMessage = lastError
+    ? `Server did not become ready within ${timeout}ms: ${lastError.message}`
+    : `Server did not become ready within ${timeout}ms`;
+  throw new Error(errorMessage);
 }
 
 /**
@@ -190,7 +270,6 @@ export async function callServerTool(
   args: Record<string, any> = {},
   apiKey?: string,
 ): Promise<any> {
-  
   return new Promise(async (resolve, reject) => {
     const timeoutId = setTimeout(() => {
       console.error('callServerTool timed out after 30 seconds');
@@ -198,62 +277,74 @@ export async function callServerTool(
     }, 30000);
 
     try {
-      let streamUrl =
+      const streamUrl =
         baseUrl.replace(/(\d+)$/, port => {
           const newPort = parseInt(port) - 1;
           return newPort.toString();
         }) + '/stream';
 
+      const requestInit: RequestInit = {};
       if (apiKey) {
-        streamUrl += `?apiKey=${encodeURIComponent(apiKey)}`;
+        requestInit.headers = {
+          Authorization: `Bearer ${apiKey}`,
+        };
       }
 
-      const headers: Record<string, string> = {};
-      if (apiKey) {
-        headers['Authorization'] = `Bearer ${apiKey}`;
-      }
+      let client: any = null;
+      let transport: any = null;
 
-      const transport = new StreamableHTTPClientTransport(new URL(streamUrl), {
-        headers,
-      }) as any;
-      const client = new Client(
-        {
-          name: 'test-client',
-          version: '1.0.0',
-        },
-        {
-          capabilities: {},
-        },
-      );
+      try {
+        transport = new StreamableHTTPClientTransport(
+          new URL(streamUrl),
+          { requestInit }
+        );
+        
+        client = new Client(
+          {
+            name: 'test-client',
+            version: '1.0.0',
+          },
+          {
+            capabilities: {},
+          },
+        );
 
-      await client.connect(transport);
+        await client.connect(transport);
 
-      const result = await client.callTool({
-        name: toolName,
-        arguments: args,
-      });
+        const result = await client.callTool({
+          name: toolName,
+          arguments: args,
+        });
 
-      await client.close();
-      clearTimeout(timeoutId);
+        clearTimeout(timeoutId);
 
-      if (result && typeof result === 'object') {
-        const content = result.content;
-        if (Array.isArray(content) && content.length > 0) {
-          const textContent = content.find((c: any) => c.type === 'text');
-          if (textContent && textContent.text) {
-            try {
-              const parsed = JSON.parse(textContent.text);
-              resolve(parsed);
-              return;
-            } catch {
-              resolve({ text: textContent.text });
-              return;
+        if (result && typeof result === 'object') {
+          const content = result.content;
+          if (Array.isArray(content) && content.length > 0) {
+            const textContent = content.find((c: any) => c.type === 'text');
+            if (textContent && textContent.text) {
+              try {
+                const parsed = JSON.parse(textContent.text);
+                resolve(parsed);
+                return;
+              } catch {
+                resolve({ text: textContent.text });
+                return;
+              }
             }
           }
         }
-      }
 
-      resolve(result);
+        resolve(result);
+      } finally {
+        if (client) {
+          try {
+            await client.close();
+          } catch (error) {
+            console.debug('Error closing client:', error);
+          }
+        }
+      }
     } catch (error) {
       clearTimeout(timeoutId);
       console.error('MCP Tool Call Error:', error);
@@ -262,9 +353,11 @@ export async function callServerTool(
         message: (error as Error).message,
         stack: (error as Error).stack,
       });
-      reject(new Error(
-        `Tool call '${toolName}' failed: ${(error as Error).message}`,
-      ));
+      reject(
+        new Error(
+          `Tool call '${toolName}' failed: ${(error as Error).message}`,
+        ),
+      );
     }
   });
 }

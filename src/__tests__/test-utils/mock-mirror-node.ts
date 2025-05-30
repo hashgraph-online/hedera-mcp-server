@@ -32,6 +32,6 @@ export function setupMirrorNodeMocks() {
  * @returns Expected credits based on test exchange rate
  */
 export function calculateTestCredits(hbarAmount: number): number {
-  const usdAmount = hbarAmount * TEST_HBAR_TO_USD_RATE;
-  return Math.floor(usdAmount * 1000);
+  const { calculateCreditsForHbar } = require('../../config/pricing-config');
+  return calculateCreditsForHbar(hbarAmount, TEST_HBAR_TO_USD_RATE);
 }

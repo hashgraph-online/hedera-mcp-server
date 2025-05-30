@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/card';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { Loader2 } from 'lucide-react';
-import { getApiClient } from '@/lib/api-client';
+import { getMCPClient } from '@/lib/mcp-client';
 import { Logger } from '@hashgraphonline/standards-sdk';
 
 interface CreditTransaction {
@@ -23,17 +23,9 @@ interface CreditTransaction {
   createdAt: string;
 }
 
-interface CreditHistoryProps {}
-
 const logger = new Logger({ module: 'CreditHistory' });
 
-/**
- * Component that displays a user's credit transaction history with real-time updates
- * Shows purchase and consumption transactions with amounts, balances, and timestamps
- * @param props - Component props (currently unused)
- * @returns Credit history display component with transaction list
- */
-export function CreditHistory({}: CreditHistoryProps) {
+export function CreditHistory() {
   const { user } = useAuth();
   const [transactions, setTransactions] = useState<CreditTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -44,12 +36,9 @@ export function CreditHistory({}: CreditHistoryProps) {
 
     const fetchHistory = async () => {
       try {
-        const apiClient = getApiClient();
-        const transactions = await apiClient.getCreditHistory(
-          user.accountId,
-          20
-        );
-        setTransactions(transactions);
+        const mcpClient = getMCPClient();
+        const result = await mcpClient.getCreditHistory(user.accountId, 20);
+        setTransactions(result.transactions);
         setError(null);
       } catch (err) {
         setError('Failed to load transaction history');
@@ -64,7 +53,7 @@ export function CreditHistory({}: CreditHistoryProps) {
     const interval = setInterval(fetchHistory, 5000);
 
     return () => clearInterval(interval);
-  }, [user, logger]);
+  }, [user]);
 
   /**
    * Formats an ISO date string into a human-readable format
@@ -81,7 +70,7 @@ export function CreditHistory({}: CreditHistoryProps) {
    * @returns {string} Tailwind CSS color class for the transaction
    */
   const getTransactionColor = (type: string) => {
-    return type === 'purchase' ? 'text-hedera-green' : 'text-red-600';
+    return type === 'purchase' ? 'text-green' : 'text-red';
   };
 
   /**
@@ -95,12 +84,12 @@ export function CreditHistory({}: CreditHistoryProps) {
 
   if (isLoading) {
     return (
-      <Card className="bg-white dark:bg-gray-800 border border-hedera-purple/10 shadow-lg">
+      <Card className="bg-card border border-hedera-purple/10 shadow-lg">
         <CardHeader>
           <CardTitle className="text-xl font-black hedera-gradient-text">
             Transaction History
           </CardTitle>
-          <CardDescription className="text-hedera-smoke dark:text-gray-400">
+          <CardDescription className="text-secondary">
             Loading your credit transactions...
           </CardDescription>
         </CardHeader>
@@ -113,12 +102,12 @@ export function CreditHistory({}: CreditHistoryProps) {
 
   if (error) {
     return (
-      <Card className="bg-white dark:bg-gray-800 border border-hedera-purple/10 shadow-lg">
+      <Card className="bg-card border border-hedera-purple/10 shadow-lg">
         <CardHeader>
           <CardTitle className="text-xl font-black hedera-gradient-text">
             Transaction History
           </CardTitle>
-          <CardDescription className="text-hedera-smoke dark:text-gray-400">
+          <CardDescription className="text-secondary">
             Error loading transactions
           </CardDescription>
         </CardHeader>
@@ -130,26 +119,24 @@ export function CreditHistory({}: CreditHistoryProps) {
   }
 
   return (
-    <Card className="bg-white dark:bg-gray-800 border border-hedera-purple/10 shadow-lg hover:shadow-xl transition-shadow duration-300">
+    <Card className="bg-card border border-hedera-purple/10 shadow-lg hover:shadow-xl transition-shadow duration-300">
       <CardHeader>
         <CardTitle className="text-xl font-black hedera-gradient-text">
           Transaction History
         </CardTitle>
-        <CardDescription className="text-hedera-smoke dark:text-gray-400">
+        <CardDescription className="text-secondary">
           Your recent credit transactions
         </CardDescription>
       </CardHeader>
       <CardContent>
         {transactions.length === 0 ? (
-          <p className="text-sm text-hedera-smoke dark:text-gray-400">
-            No transactions found
-          </p>
+          <p className="text-sm text-secondary">No transactions found</p>
         ) : (
           <div className="space-y-4">
             {transactions.map((transaction, index) => (
               <div
                 key={index}
-                className="flex items-center justify-between p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:border-hedera-purple/30 transition-all duration-200 bg-gray-50 dark:bg-gray-800/50"
+                className="flex items-center justify-between p-4 border border-primary rounded-lg hover:border-hedera-purple/30 transition-all duration-200 bg-tertiary"
               >
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
@@ -159,22 +146,22 @@ export function CreditHistory({}: CreditHistoryProps) {
                       {getTransactionSign(transaction.transactionType)}
                       {transaction.amount} credits
                     </span>
-                    <span className="text-sm text-hedera-smoke dark:text-gray-400">
+                    <span className="text-sm text-secondary">
                       Balance: {transaction.balanceAfter}
                     </span>
                   </div>
                   {transaction.description && (
-                    <p className="text-sm text-hedera-smoke dark:text-gray-400 mt-1">
+                    <p className="text-sm text-secondary mt-1">
                       {transaction.description}
                     </p>
                   )}
                   {transaction.relatedOperation && (
-                    <p className="text-xs text-hedera-smoke/70 dark:text-gray-500 mt-1">
+                    <p className="text-xs text-secondary opacity-70 mt-1">
                       Operation: {transaction.relatedOperation}
                     </p>
                   )}
                 </div>
-                <div className="text-sm text-hedera-smoke dark:text-gray-400">
+                <div className="text-sm text-secondary">
                   {formatDate(transaction.createdAt)}
                 </div>
               </div>

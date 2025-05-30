@@ -100,3 +100,4 @@ temp/
 
 # Jest
 jest.config.local.js 
+.yalc

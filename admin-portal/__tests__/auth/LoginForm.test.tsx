@@ -37,7 +37,7 @@ describe('LoginForm', () => {
   it('should render login form', () => {
     render(<LoginForm />);
     
-    expect(screen.getByText('Sign in to Admin Portal')).toBeInTheDocument();
+    expect(screen.getByText('Sign in to Hedera AI Studio')).toBeInTheDocument();
     expect(screen.getByText('Connect Wallet')).toBeInTheDocument();
   });
 

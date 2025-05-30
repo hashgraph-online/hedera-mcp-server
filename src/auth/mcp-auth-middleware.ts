@@ -21,11 +21,11 @@ interface MCPError {
  */
 export class MCPAuthMiddleware {
   private apiKeyService: ApiKeyService;
-  private anomalyDetector?: AnomalyDetector;
+  private anomalyDetector: AnomalyDetector | undefined;
   private sessionCache: Map<string, { context: AuthContext; expiry: number }> = new Map();
   private readonly CACHE_TTL = 5 * 60 * 1000;
 
-  constructor(apiKeyService: ApiKeyService, anomalyDetector?: AnomalyDetector) {
+  constructor(apiKeyService: ApiKeyService, anomalyDetector?: AnomalyDetector | undefined) {
     this.apiKeyService = apiKeyService;
     this.anomalyDetector = anomalyDetector;
   }
@@ -44,6 +44,10 @@ export class MCPAuthMiddleware {
     }
 
     const headerValue = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+    
+    if (!headerValue) {
+      return null;
+    }
     
     if (headerValue.startsWith('Bearer ')) {
       return headerValue.substring(7);

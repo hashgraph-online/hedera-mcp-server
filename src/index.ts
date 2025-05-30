@@ -1,7 +1,9 @@
+import './stdio-bootstrap';
+
 import * as dotenv from 'dotenv';
-import { Logger } from '@hashgraphonline/standards-sdk';
 import { config } from './config/server-config';
 import { HederaMCPServer } from './server/fastmcp-server';
+import { createStdioSafeLogger } from './utils/stdio-logger';
 
 dotenv.config();
 
@@ -10,7 +12,8 @@ dotenv.config();
  */
 async function main(): Promise<void> {
   let server: HederaMCPServer | null = null;
-  const logger = Logger.getInstance({
+
+  const logger = createStdioSafeLogger({
     level: (process.env.LOG_LEVEL as any) || 'info',
     module: 'HederaMCPMain',
     prettyPrint: true,
@@ -68,7 +71,7 @@ async function main(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch(error => {
-    const logger = Logger.getInstance({ module: 'HederaMCPMain' });
+    const logger = createStdioSafeLogger({ module: 'HederaMCPMain' });
     logger.error('Fatal error', { error });
     process.exit(1);
   });

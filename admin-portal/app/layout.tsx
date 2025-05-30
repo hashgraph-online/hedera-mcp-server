@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/AuthProvider";
+import { Footer } from "@/components/layout/Footer";
 
 const styreneA = localFont({
   src: [
@@ -71,7 +72,7 @@ const styreneA = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Hedera Admin Portal",
+  title: "Hedera AI Studio",
   description: "Manage your Hedera server credits and balance",
 };
 
@@ -89,9 +90,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${styreneA.variable} font-styrene antialiased min-h-screen flex flex-col bg-gradient-to-br from-gray-50 to-gray-100 dark:from-gray-900 dark:to-gray-950`}>
+      <body className={`${styreneA.variable} antialiased min-h-screen flex flex-col bg-background text-foreground`}>
         <AuthProvider>
-          {children}
+          <div className="flex flex-col min-h-screen">
+            {children}
+            <Footer />
+          </div>
         </AuthProvider>
       </body>
     </html>

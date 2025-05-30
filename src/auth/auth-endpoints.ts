@@ -52,11 +52,11 @@ export function createAuthRoutes(
 
       const challenge = await challengeService.generateChallenge({
         hederaAccountId,
-        ipAddress: req.ip,
-        userAgent: req.headers['user-agent'],
+        ipAddress: req.ip || '',
+        userAgent: req.headers['user-agent'] || '',
       });
 
-      res.json({
+      return res.json({
         challengeId: challenge.id,
         challenge: challenge.challenge,
         expiresAt: challenge.expiresAt,
@@ -64,7 +64,7 @@ export function createAuthRoutes(
       });
     } catch (error) {
       console.error('Error generating challenge:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to generate challenge',
       });
     }
@@ -117,12 +117,12 @@ export function createAuthRoutes(
 
       const apiKey = await apiKeyService.generateApiKey({
         hederaAccountId,
-        name: generateKeyRequest.name,
-        permissions: generateKeyRequest.permissions,
-        expiresAt,
+        name: generateKeyRequest.name || 'API Key',
+        permissions: generateKeyRequest.permissions || ['read'],
+        expiresAt: expiresAt || null,
       });
 
-      res.json({
+      return res.json({
         apiKey: apiKey.plainKey,
         keyId: apiKey.id,
         expiresAt: apiKey.expires_at,
@@ -130,7 +130,7 @@ export function createAuthRoutes(
       });
     } catch (error) {
       console.error('Error verifying signature:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to verify signature',
       });
     }
@@ -158,7 +158,7 @@ export function createAuthRoutes(
       }
 
       const keys = await apiKeyService.getApiKeysByAccount(keyDetails.hedera_account_id);
-      const sanitizedKeys = keys.map(key => ({
+      const sanitizedKeys = keys.map((key: any) => ({
         id: key.id,
         name: key.name,
         permissions: key.permissions,
@@ -168,12 +168,12 @@ export function createAuthRoutes(
         isActive: key.is_active,
       }));
 
-      res.json({
+      return res.json({
         keys: sanitizedKeys,
       });
     } catch (error) {
       console.error('Error listing API keys:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to list API keys',
       });
     }
@@ -202,7 +202,7 @@ export function createAuthRoutes(
 
       const newKey = await apiKeyService.rotateApiKey(keyDetails.id, keyDetails.hedera_account_id);
 
-      res.json({
+      return res.json({
         apiKey: newKey.plainKey,
         keyId: newKey.id,
         expiresAt: newKey.expires_at,
@@ -210,7 +210,7 @@ export function createAuthRoutes(
       });
     } catch (error) {
       console.error('Error rotating API key:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to rotate API key',
       });
     }
@@ -238,7 +238,7 @@ export function createAuthRoutes(
       }
 
       const { keyId } = req.params;
-      const revoked = await apiKeyService.revokeApiKey(keyId, keyDetails.hedera_account_id);
+      const revoked = await apiKeyService.revokeApiKey(keyId || '', keyDetails.hedera_account_id);
 
       if (!revoked) {
         return res.status(404).json({
@@ -246,13 +246,13 @@ export function createAuthRoutes(
         });
       }
 
-      res.json({
+      return res.json({
         success: true,
         message: 'API key revoked successfully',
       });
     } catch (error) {
       console.error('Error revoking API key:', error);
-      res.status(500).json({
+      return res.status(500).json({
         error: 'Failed to revoke API key',
       });
     }

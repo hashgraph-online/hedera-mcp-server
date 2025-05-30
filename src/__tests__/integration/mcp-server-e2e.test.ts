@@ -57,11 +57,11 @@ describe('MCP Server E2E Tests', () => {
     });
 
     tempDbPath = path.join(
-      __dirname, 
-      `../../../test-db-${Date.now()}-${randomBytes(3).toString('hex')}.sqlite`
+      __dirname,
+      `../../../test-db-${Date.now()}-${randomBytes(3).toString('hex')}.sqlite`,
     );
-    const databaseUrl = `sqlite://${tempDbPath}`;
-    
+     const databaseUrl = `sqlite://${tempDbPath}`;
+
     sqlite = await setupTestDatabase(databaseUrl, logger);
     if (!sqlite) {
       throw new Error('Failed to setup test database');
@@ -126,8 +126,7 @@ describe('MCP Server E2E Tests', () => {
       if (tempDbPath && fs.existsSync(tempDbPath)) {
         fs.unlinkSync(tempDbPath);
       }
-    } catch (err) {
-    }
+    } catch (err) {}
   });
 
   describe('Server Health and Info', () => {
@@ -151,15 +150,22 @@ describe('MCP Server E2E Tests', () => {
     });
 
     test('should list available tools', async () => {
-      const { Client } = await import('@modelcontextprotocol/sdk/client/index.js');
-      const { StreamableHTTPClientTransport } = await import('@modelcontextprotocol/sdk/client/streamableHttp.js');
-      
-      const streamUrl = testEnv.baseUrl.replace(/(\d+)$/, port => {
-        const newPort = parseInt(port) - 1;
-        return newPort.toString();
-      }) + '/stream';
+      const { Client } = await import(
+        '@modelcontextprotocol/sdk/client/index.js'
+      );
+      const { StreamableHTTPClientTransport } = await import(
+        '@modelcontextprotocol/sdk/client/streamableHttp.js'
+      );
 
-      const transport = new StreamableHTTPClientTransport(new URL(streamUrl)) as any;
+      const streamUrl =
+        testEnv.baseUrl.replace(/(\d+)$/, port => {
+          const newPort = parseInt(port) - 1;
+          return newPort.toString();
+        }) + '/stream';
+
+      const transport = new StreamableHTTPClientTransport(
+        new URL(streamUrl),
+      ) as any;
       const client = new Client(
         {
           name: 'test-client',
@@ -171,7 +177,7 @@ describe('MCP Server E2E Tests', () => {
       );
 
       await client.connect(transport);
-      
+
       const tools = await client.listTools();
       await client.close();
 
@@ -200,7 +206,10 @@ describe('MCP Server E2E Tests', () => {
         apiKey,
       );
 
-      console.log('Credit balance response:', JSON.stringify(response, null, 2));
+      console.log(
+        'Credit balance response:',
+        JSON.stringify(response, null, 2),
+      );
       console.log('API key used:', apiKey ? 'present' : 'missing');
 
       expect(response).toBeDefined();
@@ -488,11 +497,14 @@ describe('MCP Server E2E Tests', () => {
         apiKey,
       );
 
-      console.log('Purchase credits response1:', JSON.stringify(response1, null, 2));
+      console.log(
+        'Purchase credits response1:',
+        JSON.stringify(response1, null, 2),
+      );
 
       if (response1?.error) {
         console.log('Error in response1:', response1.error);
-        
+
         const unauthorizedResponse = await callServerTool(
           testEnv.baseUrl,
           'purchase_credits',
@@ -502,8 +514,11 @@ describe('MCP Server E2E Tests', () => {
             memo: 'Payment test 1 - unauthorized',
           },
         );
-        console.log('Unauthorized response:', JSON.stringify(unauthorizedResponse, null, 2));
-        
+        console.log(
+          'Unauthorized response:',
+          JSON.stringify(unauthorizedResponse, null, 2),
+        );
+
         expect(response1.error).toContain('Authentication required');
         return;
       }
@@ -519,7 +534,10 @@ describe('MCP Server E2E Tests', () => {
         apiKey,
       );
 
-      console.log('Purchase credits response2:', JSON.stringify(response2, null, 2));
+      console.log(
+        'Purchase credits response2:',
+        JSON.stringify(response2, null, 2),
+      );
 
       expect(response1).toBeDefined();
       expect(response2).toBeDefined();
@@ -585,11 +603,11 @@ describe('MCP Server E2E Tests', () => {
       let tempDb: Database.Database | undefined;
 
       try {
-        const databaseUrl = `sqlite://${tempDbPath}`;
+          const databaseUrl = `sqlite://${tempDbPath}`;
         process.env.DATABASE_URL = databaseUrl;
-        
+
         tempDb = await setupTestDatabase(databaseUrl, logger);
-        
+
         const config = loadServerConfig();
         const signer = new ServerSigner(
           config.HEDERA_OPERATOR_ID,

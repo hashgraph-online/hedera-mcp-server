@@ -1,6 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { Logger } from '@hashgraphonline/standards-sdk';
+import { TierPricing } from './pricing';
 
 interface MCPToolResult {
   content: Array<{
@@ -31,14 +32,26 @@ export class MCPClient {
 
   /**
    * Set the API key for authentication
-   * @param {string} apiKey - The API key to use for authentication
+   * @param {string | null} apiKey - The API key to use for authentication
    * @returns {void}
    */
-  setApiKey(apiKey: string): void {
+  setApiKey(apiKey: string | null): void {
+    if (this.apiKey === apiKey) {
+      return;
+    }
     this.apiKey = apiKey;
     if (this.isConnected) {
-      this.disconnect();
+      this.logger.debug('API key changed, disconnecting to force reconnection', {
+        hadApiKey: !!this.apiKey,
+        hasNewApiKey: !!apiKey,
+      });
+      this.isConnected = false;
+      this.client = null;
     }
+  }
+
+  getApiKey(): string | null {
+    return this.apiKey;
   }
 
   /**
@@ -47,6 +60,10 @@ export class MCPClient {
    */
   async connect(): Promise<void> {
     if (this.isConnected && this.client) {
+      this.logger.debug('Already connected, checking if API key matches', {
+        hasClient: true,
+        hasApiKey: !!this.apiKey,
+      });
       return;
     }
 
@@ -54,6 +71,7 @@ export class MCPClient {
       this.logger.debug('Creating transport', {
         url: this.serverUrl,
         hasApiKey: !!this.apiKey,
+        apiKeyPrefix: this.apiKey ? this.apiKey.substring(0, 8) + '...' : null,
       });
 
       const requestInit: RequestInit = {};
@@ -70,22 +88,6 @@ export class MCPClient {
         },
       );
 
-      if (transport.onmessage) {
-        const originalOnMessage = transport.onmessage;
-        transport.onmessage = msg => {
-          this.logger.debug('Transport message received', { message: msg });
-          originalOnMessage(msg);
-        };
-      }
-
-      if (transport.onerror) {
-        const originalOnError = transport.onerror;
-        transport.onerror = err => {
-          this.logger.error('Transport error', { error: err });
-          originalOnError(err);
-        };
-      }
-
       this.client = new Client(
         {
           name: 'hedera-admin-portal',
@@ -99,13 +101,16 @@ export class MCPClient {
       await this.client.connect(transport);
 
       this.isConnected = true;
-      this.logger.info('Connected to MCP server with streaming transport');
+      this.logger.info('Connected to MCP server with streaming transport', {
+        hasApiKey: !!this.apiKey,
+      });
     } catch (error) {
       this.logger.error('Failed to connect to MCP server', {
         error,
         message: error instanceof Error ? error.message : 'Unknown error',
         serverUrl: this.serverUrl,
         transportType: 'StreamableHTTPClientTransport',
+        hasApiKey: !!this.apiKey,
       });
       this.isConnected = false;
       this.client = null;
@@ -125,7 +130,8 @@ export class MCPClient {
   ): Promise<T> {
     this.logger.debug('Calling MCP tool', { toolName, args });
 
-    if (!this.client || !this.isConnected) {
+
+    if (!this.isConnected || !this.client) {
       this.logger.debug('Client not connected, connecting now');
       await this.connect();
     }
@@ -136,9 +142,14 @@ export class MCPClient {
         isConnected: this.isConnected,
         hasClient: !!this.client,
         hasApiKey: !!this.apiKey,
+        clientState: this.client ? 'exists' : 'null',
       });
 
-      const result = (await this.client!.callTool({
+      if (!this.client) {
+        throw new Error('Client is null after connection attempt');
+      }
+
+      const result = (await this.client.callTool({
         name: toolName,
         arguments: args,
       })) as MCPToolResult;
@@ -327,6 +338,15 @@ export class MCPClient {
       account_id: accountId,
       limit,
     });
+  }
+
+  async getPricingConfiguration(): Promise<{
+    operations: Record<string, number>;
+    tiers: TierPricing[];
+    modifiers: Record<string, number>;
+    currentHbarToUsdRate?: number;
+  }> {
+    return await this.callTool('get_pricing_configuration', {});
   }
 
   /**

@@ -4,10 +4,14 @@
   "testMatch": ["**/__tests__/integration/**/*.test.{js,ts}"],
   "transform": {
     "^.+\\.(ts|tsx)$": ["@swc/jest"],
-    "^.+\\.(js|jsx)$": ["@swc/jest"]
+    "^.+\\.(js|jsx|mjs)$": ["@swc/jest"]
   },
-  "transformIgnorePatterns": ["node_modules/(?!(@hashgraphonline|@hashgraph|@elizaos|fastmcp|@modelcontextprotocol|file-type|strtok3|peek-readable|token-types)/)"],
-  "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json"],
+  "transformIgnorePatterns": ["node_modules/(?!(@hashgraphonline|@hashgraph|@elizaos|fastmcp|@modelcontextprotocol|file-type|strtok3|peek-readable|token-types|mcp-proxy|undici|fuse\\.js|uri-templates|xsschema)/)"],
+  "moduleFileExtensions": ["ts", "tsx", "js", "jsx", "json", "mjs"],
+  "moduleNameMapper": {
+    "^(\\.{1,2}/.*)\\.js$": "$1"
+  },
+  "extensionsToTreatAsEsm": [".ts"],
   "collectCoverageFrom": ["src/**/*.{ts,tsx}", "!src/**/*.d.ts", "!src/**/__tests__/**", "!src/**/types/**"],
   "setupFilesAfterEnv": ["<rootDir>/src/__tests__/setup.ts"],
   "testTimeout": 60000,

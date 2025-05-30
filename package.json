@@ -13,16 +13,26 @@
     "admin": "cd admin-portal && npm run dev",
     "start": "node dist/index.js",
     "inspector": "npx @modelcontextprotocol/inspector http://localhost:3000/sse",
+    "docker:build:dev": "./scripts/build-unified.sh --dev",
+    "docker:up": "docker compose up -d",
+    "docker:up:postgres": "docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d",
+    "docker:up:redis": "docker compose -f docker-compose.yml -f docker-compose.redis.yml up -d",
+    "docker:up:full": "docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.redis.yml up -d",
+    "docker:up:dev": "docker compose -f docker-compose.dev.yml up",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f app",
+    "docker:shell": "docker compose exec app sh",
+    "docker:clean": "docker compose down -v && docker system prune -f",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:auth": "jest --testPathPattern=auth --detectOpenHandles --forceExit",
     "test:auth:unit": "jest --testPathPattern='auth.*\\.test\\.ts$' --detectOpenHandles --forceExit",
     "test:auth:integration": "jest --testPathPattern='auth.*\\.integration\\.test\\.ts$' --detectOpenHandles --forceExit",
-    "test:integration": "jest --testPathPattern=integration --detectOpenHandles --forceExit",
+    "test:integration": "jest --config=jest.integration.config.json --detectOpenHandles --forceExit",
     "test:mcp-e2e": "jest --testPathPattern=mcp-server-e2e --detectOpenHandles --forceExit",
     "test:mcp-simple": "jest --testPathPattern=mcp-server-simple --detectOpenHandles --forceExit",
     "test:db-abstraction": "jest --testPathPattern=database-abstraction --detectOpenHandles --forceExit",
-    "test:credits": "jest --testPathPattern=credits-e2e --detectOpenHandles --forceExit",
+    "test:credits": "jest --config=jest.integration.config.json --testPathPattern=credits-e2e --detectOpenHandles --forceExit",
     "test:credits-simple": "npx tsx src/scripts/test-credits.ts",
     "test:hbar-payment": "jest --testPathPattern=hbar-payment-e2e --detectOpenHandles --forceExit",
     "test:mcp-stdio": "jest --testPathPattern=mcp-stdio-e2e --detectOpenHandles --forceExit",
@@ -72,8 +82,9 @@
   "dependencies": {
     "@hashgraph/proto": "^2.18.5",
     "@hashgraph/sdk": "^2.64.5",
-    "@hashgraphonline/hedera-agent-kit": "0.0.18-canary.12",
-    "@hashgraphonline/standards-sdk": "0.0.112-canary.4",
+    "@hashgraphonline/hedera-agent-kit": "0.0.21",
+    "@hashgraphonline/standards-agent-kit": "0.0.29",
+    "@hashgraphonline/standards-sdk": "0.0.114",
     "@types/redis": "^4.0.10",
     "@types/sqlite3": "^3.1.11",
     "better-sqlite3": "^11.10.0",
@@ -130,5 +141,8 @@
   "bugs": {
     "url": "https://github.com/hashgraph-online/hedera-mcp-server/issues"
   },
-  "homepage": "https://github.com/hashgraph-online/hedera-mcp-server#readme"
+  "homepage": "https://github.com/hashgraph-online/hedera-mcp-server#readme",
+  "overrides": {
+    "mcp-proxy": "^3.2.0"
+  }
 }

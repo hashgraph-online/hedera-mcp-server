@@ -55,7 +55,7 @@ export function AuthRequired({ children }: AuthRequiredProps) {
   }
   return (
     <div className="min-h-[400px] flex items-center justify-center p-4">
-      <Card className="max-w-md w-full bg-white/90 dark:bg-gray-800/90 backdrop-blur-xl border border-hedera-purple/10 shadow-xl">
+      <Card className="max-w-md w-full bg-card backdrop-blur-xl border border-hedera-purple/10 shadow-xl">
         <CardHeader className="text-center">
           <div className="mx-auto mb-4 p-3 bg-gradient-to-br from-hedera-purple/20 to-hedera-blue/20 rounded-full w-fit">
             <KeyRound className="w-8 h-8 text-hedera-purple" />
@@ -73,8 +73,8 @@ export function AuthRequired({ children }: AuthRequiredProps) {
             </div>
           )}
           
-          <p className="text-sm text-gray-600 dark:text-gray-400">
-            Click the button below to authenticate with your wallet and continue using the admin portal.
+          <p className="text-sm text-secondary">
+            Click the button below to authenticate with your wallet and continue using Hedera AI Studio.
           </p>
 
           <Button
@@ -95,7 +95,7 @@ export function AuthRequired({ children }: AuthRequiredProps) {
             )}
           </Button>
 
-          <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+          <p className="text-xs text-center text-secondary">
             This will request a signature from your wallet to create a secure session.
           </p>
         </CardContent>

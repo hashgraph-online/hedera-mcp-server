@@ -20,7 +20,7 @@ export async function runMigrations(
     const dbPath = databaseUrl.replace('sqlite://', '');
     const isInMemory = dbPath === ':memory:';
     const sqlite = new Database(dbPath);
-    const db = drizzle(sqlite, { schema });
+    drizzle(sqlite, { schema });
 
     logger.info('Setting up SQLite database...', { path: dbPath });
 
@@ -43,7 +43,7 @@ export async function runMigrations(
     databaseUrl.startsWith('postgres://')
   ) {
     const pool = new Pool({ connectionString: databaseUrl });
-    const db = drizzlePg(pool, { schema });
+    drizzlePg(pool, { schema });
 
     logger.info('Setting up PostgreSQL database...');
     

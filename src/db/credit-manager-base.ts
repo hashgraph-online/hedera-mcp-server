@@ -245,7 +245,7 @@ export abstract class CreditManagerBase {
       }
 
       const creditsToAllocate =
-        payment.creditsAllocated || this.calculateCredits(payment.hbarAmount);
+        payment.creditsAllocated || await this.calculateCredits(payment.hbarAmount);
 
       await this.ensureUserAccount(payment.payerAccountId);
 

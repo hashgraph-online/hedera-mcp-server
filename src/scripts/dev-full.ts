@@ -374,7 +374,7 @@ process.stdin.on('data', async key => {
       adminPortalProcess?.kill();
       mcpServerReady = false;
       adminPortalReady = false;
-      mcpServerRestartCount = 0; // Reset restart count on manual restart
+      mcpServerRestartCount = 0;
       lastMcpServerExit = 0;
       logBuffer.length = 0;
 
@@ -389,7 +389,7 @@ process.stdin.on('data', async key => {
       console.log(chalk.yellow('\n🔄 Restarting MCP server...'));
       mcpServerProcess?.kill();
       mcpServerReady = false;
-      mcpServerRestartCount = 0; // Reset restart count on manual restart
+      mcpServerRestartCount = 0;
       lastMcpServerExit = 0;
 
       setTimeout(() => {

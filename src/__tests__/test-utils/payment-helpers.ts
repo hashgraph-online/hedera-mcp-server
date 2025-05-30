@@ -1,12 +1,7 @@
 import { CreditManagerBase } from '../../db/credit-manager-base';
 import { 
-    TransactionId, 
-    PrivateKey,
-    TransferTransaction,
-    Hbar,
-    HbarUnit
+    TransactionId
 } from '@hashgraph/sdk';
-import { calculateTestCredits } from './mock-mirror-node';
 
 export interface TestPayment {
   accountId: string;

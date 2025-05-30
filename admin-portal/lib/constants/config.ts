@@ -5,8 +5,8 @@ export const HEDERA_CONFIG = {
   walletConnect: {
     projectId: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "",
     metadata: {
-      name: "Hedera MCP Admin Portal",
-      description: "Admin portal for managing Hedera MCP Server credits",
+      name: "Hedera AI Studio",
+      description: "AI Studio for managing Hedera MCP Server credits",
       url: process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3001",
       icons: ["/favicon.ico"] as string[],
     },

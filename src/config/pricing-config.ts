@@ -209,7 +209,7 @@ let mirrorNodeInstance: HederaMirrorNode | null = null;
  * Gets or creates the mirror node instance for USD conversion
  */
 function getMirrorNode(
-  network: NetworkType = NetworkType.MAINNET,
+  network: NetworkType = 'mainnet',
 ): HederaMirrorNode {
   if (!mirrorNodeInstance) {
     const logger = new Logger({ module: 'PricingConfig' });
@@ -224,7 +224,7 @@ function getMirrorNode(
  * @returns The USD value of 1 HBAR
  */
 export async function getHbarToUsdRate(
-  network: NetworkType = NetworkType.MAINNET,
+  network: NetworkType = 'mainnet',
 ): Promise<number> {
   try {
     const mirrorNode = getMirrorNode(network);

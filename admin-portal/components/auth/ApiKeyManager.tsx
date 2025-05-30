@@ -4,19 +4,25 @@ import { useState, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
 import { getApiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
 } from '@/components/ui/table';
-import { 
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -26,14 +32,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { 
-  Loader2, 
-  Key, 
-  RotateCw, 
-  Trash2, 
-  Copy, 
+import {
+  Loader2,
+  Key,
+  RotateCw,
+  Trash2,
+  Copy,
   Check,
-  AlertCircle 
+  AlertCircle,
 } from 'lucide-react';
 
 interface ApiKeyInfo {
@@ -73,12 +79,12 @@ function ApiKeyRow({
   onShowRevoke,
 }: ApiKeyRowProps) {
   const isExpired = key.expiresAt && new Date(key.expiresAt) < new Date();
-  const isCurrentKey = currentApiKey && currentApiKey.includes(key.prefix);
-  
+  const isCurrentKey = currentApiKey ? currentApiKey.includes(key.prefix) : false;
+
   const handleCopyClick = () => onCopy(key.id);
   const handleRotateClick = () => onRotate(key.id);
   const handleRevokeClick = () => onShowRevoke(key.id);
-  
+
   /**
    * Masks an API key for security purposes, showing only first 8 and last 4 characters
    * @param {string} keyStr - The API key string to mask
@@ -88,7 +94,7 @@ function ApiKeyRow({
     if (keyStr.length <= 12) return keyStr;
     return `${keyStr.substring(0, 8)}...${keyStr.substring(keyStr.length - 4)}`;
   };
-  
+
   /**
    * Formats a date string into a human-readable format
    * @param {string} dateString - The ISO date string to format
@@ -100,23 +106,19 @@ function ApiKeyRow({
       month: 'short',
       day: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   };
 
   return (
     <TableRow>
-      <TableCell className="font-medium">
-        {key.name || 'Default Key'}
-      </TableCell>
+      <TableCell className="font-medium">{key.name || 'Default Key'}</TableCell>
       <TableCell>
         <div className="flex items-center gap-2">
-          <code className="text-sm">{maskApiKey(currentApiKey || key.prefix)}</code>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={handleCopyClick}
-          >
+          <code className="text-sm">
+            {maskApiKey(currentApiKey || key.prefix)}
+          </code>
+          <Button size="sm" variant="ghost" onClick={handleCopyClick}>
             {isCopied ? (
               <Check className="w-3 h-3" />
             ) : (
@@ -126,17 +128,15 @@ function ApiKeyRow({
         </div>
       </TableCell>
       <TableCell>{formatDate(key.createdAt)}</TableCell>
-      <TableCell>
-        {key.lastUsed ? formatDate(key.lastUsed) : 'Never'}
-      </TableCell>
+      <TableCell>{key.lastUsed ? formatDate(key.lastUsed) : 'Never'}</TableCell>
       <TableCell>{key.usageCount}</TableCell>
       <TableCell>
         {isExpired ? (
-          <Badge variant="destructive">Expired</Badge>
+          <Badge variant="error">Expired</Badge>
         ) : isCurrentKey ? (
           <Badge variant="default">Active</Badge>
         ) : (
-          <Badge variant="secondary">Valid</Badge>
+          <Badge variant="info">Valid</Badge>
         )}
       </TableCell>
       <TableCell className="text-right">
@@ -203,13 +203,13 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
   const loadApiKeys = async () => {
     setLoading(true);
     setError(null);
-    
+
     try {
       const apiClient = getApiClient();
-      const keyInfo = await apiClient.getApiKey();
-      
-      if (keyInfo) {
-        setKeys([keyInfo]);
+      const keyList = await apiClient.getApiKey();
+
+      if (keyList && Array.isArray(keyList)) {
+        setKeys(keyList);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load API keys');
@@ -226,7 +226,7 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
   const handleRotateKey = async (keyId: string) => {
     setRotatingKey(keyId);
     setError(null);
-    
+
     try {
       await new Promise(resolve => setTimeout(resolve, 1000));
       await loadApiKeys();
@@ -243,10 +243,10 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
    */
   const handleRevokeKey = async () => {
     if (!keyToRevoke) return;
-    
+
     setRevokingKey(keyToRevoke);
     setError(null);
-    
+
     try {
       await new Promise(resolve => setTimeout(resolve, 1000));
       await loadApiKeys();
@@ -282,13 +282,14 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
     setShowRevokeDialog(true);
   };
 
-
   if (!isConnected || !user) {
     return (
       <Card>
         <CardHeader>
           <CardTitle>API Keys</CardTitle>
-          <CardDescription>Connect your wallet to manage API keys</CardDescription>
+          <CardDescription>
+            Connect your wallet to manage API keys
+          </CardDescription>
         </CardHeader>
       </Card>
     );
@@ -302,9 +303,7 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
             <Key className="w-5 h-5" />
             API Keys
           </CardTitle>
-          <CardDescription>
-            Manage your MCP server API keys
-          </CardDescription>
+          <CardDescription>Manage your MCP server API keys</CardDescription>
         </CardHeader>
         <CardContent>
           {error && (
@@ -337,11 +336,11 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {keys.map((key) => (
+                {keys.map(key => (
                   <ApiKeyRow
                     key={key.id}
                     apiKey={key}
-                    currentApiKey={apiKey}
+                    currentApiKey={apiKey || null}
                     isRotating={rotatingKey === key.id}
                     isRevoking={revokingKey === key.id}
                     isCopied={copiedKey === key.id}
@@ -361,8 +360,8 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke API Key</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. The API key will be permanently revoked
-              and any applications using it will stop working.
+              This action cannot be undone. The API key will be permanently
+              revoked and any applications using it will stop working.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

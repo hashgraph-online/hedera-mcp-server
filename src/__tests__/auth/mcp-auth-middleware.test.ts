@@ -28,7 +28,7 @@ describe('MCPAuthMiddleware Integration', () => {
       __dirname,
       `../../../test-db-${Date.now()}-${randomBytes(3).toString('hex')}.sqlite`,
     );
-    const databaseUrl = `sqlite://${tempDbPath}`;
+     const databaseUrl = `sqlite://${tempDbPath}`;
 
     logger = new Logger({ module: 'auth-middleware-test', level: 'error' });
 

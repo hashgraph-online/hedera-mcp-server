@@ -1,188 +1,111 @@
 version: '3.8'
 
-x-logging: &dev-logging
-  driver: "json-file"
-  options:
-    max-size: "5m"
-    max-file: "2"
-
+# Development Docker Compose - Optimized for local development
 services:
-  mcp-server:
+  dev:
     build:
       context: .
+      dockerfile: Dockerfile
       target: development
-      args:
-        - BUILDKIT_INLINE_CACHE=1
-    image: hedera-mcp-server:dev
-    container_name: hedera-mcp-server-dev
+    image: hedera-mcp:dev
+    container_name: hedera-dev
     ports:
-      - "3000:3000"  # MCP server
-      - "3002:3002"  # HTTP API
-      - "9229:9229"  # Debug port
+      - "3000:3000"      # MCP Server
+      - "3001:3001"      # Admin Portal  
+      - "3002:3002"      # HTTP API
+      - "9229:9229"      # Node.js debugger
     environment:
-      - NODE_ENV=development
-      - DATABASE_URL=${DATABASE_URL:-sqlite://./data/credits.db}
-      - HEDERA_NETWORK=${HEDERA_NETWORK:-testnet}
-      - HEDERA_OPERATOR_ID=${HEDERA_OPERATOR_ID}
-      - HEDERA_OPERATOR_KEY=${HEDERA_OPERATOR_KEY}
-      - SERVER_ACCOUNT_ID=${SERVER_ACCOUNT_ID}
-      - SERVER_PRIVATE_KEY=${SERVER_PRIVATE_KEY}
-      - LOG_LEVEL=${LOG_LEVEL:-debug}
-      - CREDITS_CONVERSION_RATE=${CREDITS_CONVERSION_RATE:-1000}
-      - RATE_LIMIT_MAX=${RATE_LIMIT_MAX:-1000}
-      - ENABLE_METRICS=${ENABLE_METRICS:-true}
-      - NODE_OPTIONS=--inspect=0.0.0.0:9229
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ADMIN_PORTAL_URL=http://admin-portal:3001
+      # Development settings
+      NODE_ENV: development
+      LOG_LEVEL: debug
+      
+      # Hedera Configuration
+      HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
+      HEDERA_OPERATOR_ID: ${HEDERA_OPERATOR_ID}
+      HEDERA_OPERATOR_KEY: ${HEDERA_OPERATOR_KEY}
+      SERVER_ACCOUNT_ID: ${SERVER_ACCOUNT_ID}
+      SERVER_PRIVATE_KEY: ${SERVER_PRIVATE_KEY}
+      
+      # Database (SQLite for dev)
+      DATABASE_URL: sqlite:///app/data/credits.db
+      
+      # Credits
+      CREDITS_CONVERSION_RATE: 1000
+      
+      # API Keys
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      API_KEY_ENCRYPTION_KEY: ${API_KEY_ENCRYPTION_KEY:-dev-encryption-key}
+      
+      # Admin Portal
+      NEXT_PUBLIC_HEDERA_NETWORK: ${HEDERA_NETWORK:-testnet}
+      NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${WALLETCONNECT_PROJECT_ID}
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3002
+      NEXT_PUBLIC_APP_URL: http://localhost:3001
+      
+      # Development features
+      FORCE_COLOR: 1
+      DEBUG: ${DEBUG:-*}
     volumes:
-      - ./src:/app/src:ro
-      - ./package.json:/app/package.json:ro
-      - ./tsconfig.json:/app/tsconfig.json:ro
-      - ./drizzle.config.ts:/app/drizzle.config.ts:ro
-      - ./drizzle.postgres.config.ts:/app/drizzle.postgres.config.ts:ro
-      - ./data:/app/data
-      - /app/node_modules  # Anonymous volume for node_modules
-    restart: unless-stopped
-    logging: *dev-logging
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (res) => process.exit(res.statusCode === 200 ? 0 : 1))"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    networks:
-      - mcp-dev-network
+      # Mount source code for hot reload
+      - ./src:/app/src:delegated
+      - ./admin-portal/app:/app/admin-portal/app:delegated
+      - ./admin-portal/components:/app/admin-portal/components:delegated
+      - ./admin-portal/lib:/app/admin-portal/lib:delegated
+      - ./admin-portal/public:/app/admin-portal/public:delegated
+      - ./package.json:/app/package.json:delegated
+      - ./tsconfig.json:/app/tsconfig.json:delegated
+      - ./drizzle.config.ts:/app/drizzle.config.ts:delegated
+      - ./.env:/app/.env:delegated
+      
+      # Persist data
+      - dev_data:/app/data
+      - dev_logs:/app/logs
+      
+      # Prevent node_modules from being overwritten
+      - /app/node_modules
+      - /app/admin-portal/node_modules
+      - /app/admin-portal/.next
     stdin_open: true
     tty: true
-
-  admin-portal:
-    build:
-      context: ./admin-portal
-      target: development
-      args:
-        - BUILDKIT_INLINE_CACHE=1
-    image: hedera-admin-portal:dev
-    container_name: hedera-admin-portal-dev
-    ports:
-      - "3001:3001"
-    environment:
-      - NODE_ENV=development
-      - NEXT_PUBLIC_HEDERA_NETWORK=${HEDERA_NETWORK:-testnet}
-      - NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=${WALLETCONNECT_PROJECT_ID}
-      - NEXT_PUBLIC_API_BASE_URL=http://mcp-server:3002
-      - NEXT_PUBLIC_APP_URL=http://localhost:3001
-      - NEXT_PUBLIC_MCP_SERVER_URL=http://localhost:3000/stream
-      - NEXT_PUBLIC_MCP_INSPECTOR_ENABLED=${NEXT_PUBLIC_MCP_INSPECTOR_ENABLED:-true}
-      - NEXT_PUBLIC_MCP_INSPECTOR_URL=${NEXT_PUBLIC_MCP_INSPECTOR_URL:-http://127.0.0.1:6274}
-      - MCP_SERVER_URL=http://mcp-server:3000/stream
-    volumes:
-      - ./admin-portal/app:/app/app:ro
-      - ./admin-portal/components:/app/components:ro
-      - ./admin-portal/lib:/app/lib:ro
-      - ./admin-portal/hooks:/app/hooks:ro
-      - ./admin-portal/types:/app/types:ro
-      - ./admin-portal/public:/app/public:ro
-      - /app/node_modules
-      - /app/.next
-    restart: unless-stopped
-    logging: *dev-logging
-    depends_on:
-      - mcp-server
     networks:
-      - mcp-dev-network
-    profiles:
-      - full
+      - dev-network
 
-  mcp-inspector:
-    image: node:22-alpine
-    container_name: hedera-mcp-inspector
-    command: sh -c "npm install -g @modelcontextprotocol/inspector && mcp-inspector http://mcp-server:3000/stream --port ${MCP_INSPECTOR_PORT:-6274}"
-    ports:
-      - "${MCP_INSPECTOR_PORT:-6274}:${MCP_INSPECTOR_PORT:-6274}"
-    environment:
-      - NODE_ENV=development
-    depends_on:
-      mcp-server:
-        condition: service_healthy
-    networks:
-      - mcp-dev-network
-    profiles:
-      - inspector
-
-  # Optional: Local PostgreSQL for development
-  # Note: For production, use external database services like Supabase, Cloud SQL, etc.
+  # Optional: PostgreSQL for development
   postgres:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: hedera-postgres-dev
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-mcpserver_dev}
-      POSTGRES_USER: ${POSTGRES_USER:-mcpuser}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mcppass}
+      POSTGRES_DB: hedera_dev
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: devpass
     ports:
       - "5432:5432"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mcpuser} -d ${POSTGRES_DB:-mcpserver_dev}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    logging: *dev-logging
     networks:
-      - mcp-dev-network
+      - dev-network
     profiles:
-      - local-db
+      - with-postgres
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    container_name: hedera-pgadmin-dev
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: 'False'
-    ports:
-      - "8080:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      - postgres
-    restart: unless-stopped
-    logging: *dev-logging
-    networks:
-      - mcp-dev-network
-    profiles:
-      - postgres
-
+  # Optional: Redis for development
   redis:
     image: redis:7-alpine
     container_name: hedera-redis-dev
-    command: redis-server --appendonly yes --loglevel debug
     ports:
       - "6379:6379"
-    volumes:
-      - redis_dev_data:/data
-    restart: unless-stopped
-    logging: *dev-logging
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
     networks:
-      - mcp-dev-network
+      - dev-network
     profiles:
-      - redis
-
+      - with-redis
 
 volumes:
+  dev_data:
+    driver: local
+  dev_logs:
+    driver: local
   postgres_dev_data:
-    driver: local
-  pgadmin_data:
-    driver: local
-  redis_dev_data:
     driver: local
 
 networks:
-  mcp-dev-network:
+  dev-network:
     driver: bridge

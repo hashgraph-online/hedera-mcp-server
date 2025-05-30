@@ -9,7 +9,7 @@ import path from 'path';
 /**
  * Sets up a test database with schema and seed data using Drizzle migrations
  */
-export async function setupTestDatabase(databaseUrl: string, logger: Logger): Promise<Database.Database | undefined> {
+export async function setupTestDatabase(databaseUrl: string, logger: Logger): Promise<Database.Database | null> {
   if (!databaseUrl.startsWith('sqlite://')) {
     throw new Error('Test database must be SQLite');
   }

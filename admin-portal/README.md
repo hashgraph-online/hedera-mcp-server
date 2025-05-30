@@ -1,6 +1,6 @@
-# Hedera MCP Server Admin Portal
+# Hedera AI Studio
 
-A Next.js-based admin portal for managing credits and monitoring transactions for the Hedera MCP Server.
+A Next.js-based AI Studio for managing credits and monitoring transactions for the Hedera MCP Server.
 
 ## Features
 
@@ -13,12 +13,12 @@ A Next.js-based admin portal for managing credits and monitoring transactions fo
 
 ## Architecture
 
-The admin portal follows a clean architecture where:
+Hedera AI Studio follows a clean architecture where:
 - **Frontend (Next.js)**: Handles UI and user interactions
 - **API Routes**: Use MCP client to call server tools directly
 - **MCP Client**: Communicates with MCP server using Model Context Protocol
 - **MCP Server**: Manages all database operations and business logic
-- **No Direct DB Access**: The admin portal never touches the database directly
+- **No Direct DB Access**: The AI Studio never touches the database directly
 
 ## Setup
 
@@ -46,7 +46,7 @@ npm install
 npm run dev
 ```
 
-The portal will be available at http://localhost:3001
+Hedera AI Studio will be available at http://localhost:3001
 
 ## Credit Purchase Flow
 
@@ -55,24 +55,24 @@ The portal will be available at http://localhost:3001
    - Clicks "Purchase" button
 
 2. **Wallet Transaction**
-   - Admin portal creates HBAR transfer transaction
+   - AI Studio creates HBAR transfer transaction
    - User approves in their wallet (HashPack, etc.)
    - Transaction is sent to Hedera network
 
 3. **Transaction Recording**
-   - Portal sends transaction ID to MCP server
+   - AI Studio sends transaction ID to MCP server
    - MCP server records payment with PENDING status
    - Credits are NOT allocated yet
 
 4. **Confirmation Monitoring**
-   - Portal polls MCP server for transaction status
+   - AI Studio polls MCP server for transaction status
    - MCP server monitors Hedera network for confirmation
    - Once confirmed, status changes to COMPLETED
 
 5. **Credit Allocation**
    - MCP server allocates credits when payment is COMPLETED
    - User's balance is updated
-   - Portal shows success message
+   - AI Studio shows success message
 
 ## API Endpoints
 
@@ -86,7 +86,7 @@ All API endpoints use MCP tools to communicate with the server:
 
 ## MCP Tools Used
 
-The admin portal communicates with these MCP server tools:
+Hedera AI Studio communicates with these MCP server tools:
 
 - **check_credit_balance**: Get credit balance for an account
 - **execute_transaction**: Query Hedera network for HBAR balance
@@ -140,7 +140,7 @@ cd ..  # Go to MCP server root
 This will start:
 - MCP Server on http://localhost:3000
 - HTTP API on http://localhost:3002
-- Admin Portal on http://localhost:3001
+- Hedera AI Studio on http://localhost:3001
 
 ## Security Considerations
 

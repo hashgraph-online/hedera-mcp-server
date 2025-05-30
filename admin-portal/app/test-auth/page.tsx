@@ -4,7 +4,13 @@ import { useAuth } from '@/components/auth/AuthProvider';
 import { useState } from 'react';
 import { getApiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Loader2 } from 'lucide-react';
 import { MCPAuthClient } from '@/lib/auth/mcp-auth-client';
 
@@ -52,7 +58,7 @@ export default function TestAuthPage({}: TestAuthPageProps) {
     if (!sdk || !user) {
       addResult({
         type: 'error',
-        message: 'No wallet connected'
+        message: 'No wallet connected',
       });
       return;
     }
@@ -63,10 +69,10 @@ export default function TestAuthPage({}: TestAuthPageProps) {
     try {
       const authClient = new MCPAuthClient({ sdk });
       await authClient.initialize();
-      
+
       addResult({
         type: 'success',
-        message: 'Starting authentication process...'
+        message: 'Starting authentication process...',
       });
 
       const authResponse = await authClient.authenticate({
@@ -81,19 +87,18 @@ export default function TestAuthPage({}: TestAuthPageProps) {
           apiKey: authResponse.apiKey,
           keyId: authResponse.keyId,
           expiresAt: authResponse.expiresAt,
-          permissions: authResponse.permissions
-        }
+          permissions: authResponse.permissions,
+        },
       });
 
       setApiKey(authResponse.apiKey);
-      
+
       const apiClient = getApiClient();
       apiClient.setApiKey(authResponse.apiKey);
-
     } catch (error) {
       addResult({
         type: 'error',
-        message: `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     } finally {
       setAuthenticating(false);
@@ -111,12 +116,12 @@ export default function TestAuthPage({}: TestAuthPageProps) {
       addResult({
         type: 'success',
         message: 'API Key info retrieved successfully',
-        data: keyInfo
+        data: keyInfo,
       });
     } catch (error) {
       addResult({
         type: 'error',
-        message: `Failed to get API key info: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Failed to get API key info: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   };
@@ -129,7 +134,7 @@ export default function TestAuthPage({}: TestAuthPageProps) {
     if (!user) {
       addResult({
         type: 'error',
-        message: 'No user connected'
+        message: 'No user connected',
       });
       return;
     }
@@ -140,12 +145,12 @@ export default function TestAuthPage({}: TestAuthPageProps) {
       addResult({
         type: 'success',
         message: 'Credit balance retrieved successfully',
-        data: balance
+        data: balance,
       });
     } catch (error) {
       addResult({
         type: 'error',
-        message: `Failed to get credit balance: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Failed to get credit balance: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   };
@@ -161,12 +166,12 @@ export default function TestAuthPage({}: TestAuthPageProps) {
       addResult({
         type: 'success',
         message: 'Server config retrieved successfully',
-        data: config
+        data: config,
       });
     } catch (error) {
       addResult({
         type: 'error',
-        message: `Failed to get server config: ${error instanceof Error ? error.message : 'Unknown error'}`
+        message: `Failed to get server config: ${error instanceof Error ? error.message : 'Unknown error'}`,
       });
     }
   };
@@ -182,7 +187,7 @@ export default function TestAuthPage({}: TestAuthPageProps) {
     if (!isConnected || !user) {
       addResult({
         type: 'error',
-        message: 'Please connect wallet first'
+        message: 'Please connect wallet first',
       });
       setTesting(false);
       return;
@@ -202,7 +207,9 @@ export default function TestAuthPage({}: TestAuthPageProps) {
       <Card className="mb-6">
         <CardHeader>
           <CardTitle>Wallet Connection</CardTitle>
-          <CardDescription>Connect your wallet to test MCP authentication</CardDescription>
+          <CardDescription>
+            Connect your wallet to test MCP authentication
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -214,10 +221,19 @@ export default function TestAuthPage({}: TestAuthPageProps) {
             ) : isConnected && user ? (
               <>
                 <div className="space-y-2">
-                  <p><strong>Account ID:</strong> {user.accountId}</p>
-                  <p><strong>HBAR Balance:</strong> {user.balance.hbar}</p>
-                  <p><strong>Credit Balance:</strong> {user.balance.credits}</p>
-                  <p><strong>API Key:</strong> {apiKey ? '✓ Authenticated' : '✗ Not authenticated'}</p>
+                  <p>
+                    <strong>Account ID:</strong> {user.accountId}
+                  </p>
+                  <p>
+                    <strong>HBAR Balance:</strong> {user.balance.hbar}
+                  </p>
+                  <p>
+                    <strong>Credit Balance:</strong> {user.balance.credits}
+                  </p>
+                  <p>
+                    <strong>API Key:</strong>{' '}
+                    {apiKey ? '✓ Authenticated' : '✗ Not authenticated'}
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {!apiKey && (
@@ -238,9 +254,7 @@ export default function TestAuthPage({}: TestAuthPageProps) {
                 </div>
               </>
             ) : (
-              <Button onClick={connect}>
-                Connect Wallet
-              </Button>
+              <Button onClick={connect}>Connect Wallet</Button>
             )}
           </div>
         </CardContent>
@@ -276,14 +290,18 @@ export default function TestAuthPage({}: TestAuthPageProps) {
                     <div
                       key={index}
                       className={`p-3 rounded-md ${
-                        result.type === 'success' 
-                          ? 'bg-green-50 border border-green-200' 
+                        result.type === 'success'
+                          ? 'bg-green-50 border border-green-200'
                           : 'bg-red-50 border border-red-200'
                       }`}
                     >
-                      <p className={`font-medium ${
-                        result.type === 'success' ? 'text-green-800' : 'text-red-800'
-                      }`}>
+                      <p
+                        className={`font-medium ${
+                          result.type === 'success'
+                            ? 'text-green-800'
+                            : 'text-red-800'
+                        }`}
+                      >
                         {result.message}
                       </p>
                       {result.data && (

@@ -34,7 +34,10 @@ export class MCPAuthClient {
 
   constructor(options: MCPAuthClientOptions) {
     this.sdk = options.sdk;
-    this.apiBaseUrl = options.apiBaseUrl || process.env.NEXT_PUBLIC_AUTH_API_URL || 'http://localhost:3002';
+    this.apiBaseUrl =
+      options.apiBaseUrl ||
+      process.env.NEXT_PUBLIC_AUTH_API_URL ||
+      'http://localhost:3002';
     this.startRotationCheck();
   }
 
@@ -61,18 +64,24 @@ export class MCPAuthClient {
     }
 
     const challenge = await this.requestChallenge(accountInfo.accountId);
-    
+
     const timestamp = Date.now();
-    const network = challenge.network || process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
-    const message = this.createAuthMessage(challenge.challenge, timestamp, accountInfo.accountId, network);
-    
+    const network =
+      challenge.network || process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
+    const message = this.createAuthMessage(
+      challenge.challenge,
+      timestamp,
+      accountInfo.accountId,
+      network,
+    );
+
     const result = await this.sdk.signMessage(message);
     console.log('Wallet sign result:', result);
-    
+
     const signatureData = result.userSignature;
     console.log('Signature data type:', typeof signatureData);
     console.log('Signature data:', signatureData);
-    
+
     const signature = signatureData;
     const publicKey = '';
 
@@ -84,7 +93,7 @@ export class MCPAuthClient {
       timestamp,
       ...options,
     };
-    
+
     console.log('Verify params being sent:', verifyParams);
 
     const response = await this.verifySignature(verifyParams);
@@ -107,14 +116,20 @@ export class MCPAuthClient {
       name?: string;
       permissions?: string[];
       expiresIn?: number;
-    }
+    },
   ): Promise<AuthResponse> {
     const challenge = await this.requestChallenge(hederaAccountId);
-    
+
     const timestamp = Date.now();
-    const network = challenge.network || process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
-    const message = this.createAuthMessage(challenge.challenge, timestamp, hederaAccountId, network);
-    
+    const network =
+      challenge.network || process.env.NEXT_PUBLIC_HEDERA_NETWORK || 'testnet';
+    const message = this.createAuthMessage(
+      challenge.challenge,
+      timestamp,
+      hederaAccountId,
+      network,
+    );
+
     const messageBytes = new TextEncoder().encode(message);
     const signature = privateKey.sign(messageBytes);
     const publicKey = privateKey.publicKey;
@@ -137,7 +152,9 @@ export class MCPAuthClient {
    * @param hederaAccountId - The Hedera account ID
    * @returns The authentication challenge
    */
-  private async requestChallenge(hederaAccountId: string): Promise<AuthChallenge> {
+  private async requestChallenge(
+    hederaAccountId: string,
+  ): Promise<AuthChallenge> {
     const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/challenge`, {
       method: 'POST',
       headers: {
@@ -193,7 +210,12 @@ export class MCPAuthClient {
    * @param network - The Hedera network
    * @returns The message to sign
    */
-  private createAuthMessage(challenge: string, timestamp: number, accountId: string, network: string = 'testnet'): string {
+  private createAuthMessage(
+    challenge: string,
+    timestamp: number,
+    accountId: string,
+    network: string = 'testnet',
+  ): string {
     return `Sign this message to authenticate with MCP Server\n\nChallenge: ${challenge}\nNonce: ${challenge}\nTimestamp: ${timestamp}\nAccount: ${accountId}\nNetwork: ${network}`;
   }
 
@@ -209,7 +231,7 @@ export class MCPAuthClient {
     const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/keys`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
     });
 
@@ -232,12 +254,15 @@ export class MCPAuthClient {
       throw new Error('No API key available');
     }
 
-    const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/keys/${keyId}`, {
-      method: 'DELETE',
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+    const response = await fetch(
+      `${this.apiBaseUrl}/api/v1/auth/keys/${keyId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
       },
-    });
+    );
 
     if (!response.ok) {
       const error = await response.json();
@@ -261,11 +286,11 @@ export class MCPAuthClient {
    */
   shouldRotateKey(): boolean {
     if (!this.keyExpiresAt) return false;
-    
+
     const now = new Date();
     const timeUntilExpiry = this.keyExpiresAt.getTime() - now.getTime();
     const oneDay = 24 * 60 * 60 * 1000;
-    
+
     return timeUntilExpiry < oneDay;
   }
 
@@ -280,7 +305,7 @@ export class MCPAuthClient {
 
     const keys = await this.listApiKeys();
     const currentKey = keys.find(k => k.id === this.apiKey);
-    
+
     if (!currentKey) {
       throw new Error('Current API key not found');
     }
@@ -291,7 +316,7 @@ export class MCPAuthClient {
     });
 
     await this.revokeApiKey(currentKey.id);
-    
+
     return newKeyResponse;
   }
 
@@ -301,19 +326,19 @@ export class MCPAuthClient {
   async logout(): Promise<void> {
     this.apiKey = null;
     this.keyExpiresAt = null;
-    
+
     const db = await this.openDB();
     const tx = db.transaction(this.STORE_NAME, 'readwrite');
     const store = tx.objectStore(this.STORE_NAME);
-    
+
     store.delete('api_key');
     store.delete('api_key_expires');
-    
+
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
     });
-    
+
     await this.sdk.disconnect();
   }
 
@@ -324,11 +349,11 @@ export class MCPAuthClient {
   private async openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
       const request = indexedDB.open(this.DB_NAME, 1);
-      
+
       request.onerror = () => reject(request.error);
       request.onsuccess = () => resolve(request.result);
-      
-      request.onupgradeneeded = (event) => {
+
+      request.onupgradeneeded = event => {
         const db = (event.target as IDBOpenDBRequest).result;
         if (!db.objectStoreNames.contains(this.STORE_NAME)) {
           db.createObjectStore(this.STORE_NAME);
@@ -345,14 +370,16 @@ export class MCPAuthClient {
   private async storeApiKey(apiKey: string, expiresAt?: string): Promise<void> {
     this.apiKey = apiKey;
     this.keyExpiresAt = expiresAt ? new Date(expiresAt) : null;
-    
+
     const db = await this.openDB();
     const tx = db.transaction(this.STORE_NAME, 'readwrite');
     const store = tx.objectStore(this.STORE_NAME);
-    
+
     const apiKeyRequest = store.put(apiKey, 'api_key');
-    const expiresRequest = expiresAt ? store.put(expiresAt, 'api_key_expires') : null;
-    
+    const expiresRequest = expiresAt
+      ? store.put(expiresAt, 'api_key_expires')
+      : null;
+
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
@@ -367,24 +394,24 @@ export class MCPAuthClient {
       const db = await this.openDB();
       const tx = db.transaction(this.STORE_NAME, 'readonly');
       const store = tx.objectStore(this.STORE_NAME);
-      
+
       const apiKeyRequest = store.get('api_key');
       const expiresRequest = store.get('api_key_expires');
-      
-      const apiKey = await new Promise<string | undefined>((resolve) => {
+
+      const apiKey = await new Promise<string | undefined>(resolve => {
         apiKeyRequest.onsuccess = () => resolve(apiKeyRequest.result);
         apiKeyRequest.onerror = () => resolve(undefined);
       });
-      
-      const expiresAt = await new Promise<string | undefined>((resolve) => {
+
+      const expiresAt = await new Promise<string | undefined>(resolve => {
         expiresRequest.onsuccess = () => resolve(expiresRequest.result);
         expiresRequest.onerror = () => resolve(undefined);
       });
-      
+
       if (apiKey) {
         this.apiKey = apiKey;
         this.keyExpiresAt = expiresAt ? new Date(expiresAt) : null;
-        
+
         if (this.keyExpiresAt && this.keyExpiresAt < new Date()) {
           console.log('API key expired, logging out:', this.keyExpiresAt);
           await this.logout();
@@ -405,11 +432,14 @@ export class MCPAuthClient {
    */
   private startRotationCheck(): void {
     if (typeof window !== 'undefined') {
-      this.rotationCheckInterval = setInterval(() => {
-        if (this.shouldRotateKey()) {
-          window.dispatchEvent(new CustomEvent('mcp-auth:rotation-needed'));
-        }
-      }, 60 * 60 * 1000);
+      this.rotationCheckInterval = setInterval(
+        () => {
+          if (this.shouldRotateKey()) {
+            window.dispatchEvent(new CustomEvent('mcp-auth:rotation-needed'));
+          }
+        },
+        60 * 60 * 1000,
+      );
     }
   }
 

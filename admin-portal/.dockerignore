@@ -1,0 +1,101 @@
+# Node modules
+node_modules/
+**/node_modules/
+
+# Next.js build output
+.next/
+out/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Git
+.git/
+.gitignore
+
+# Documentation (except README which might be needed)
+docs/
+*.md
+!README.md
+
+# Test files
+__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+cypress/
+e2e/
+jest.config.js
+jest.setup.js
+
+# Monitoring (should be deployed separately)
+monitoring/
+
+# CI/CD
+.github/
+.circleci/
+.gitlab-ci.yml
+
+# Package manager files (except the ones we need)
+.npm/
+.yarn/
+.pnp.*
+yarn.lock
+pnpm-lock.yaml
+
+# Temporary files
+tmp/
+temp/
+.cache/
+
+# TypeScript
+*.tsbuildinfo
+
+# Misc
+*.pem
+*.key
+*.cert
+
+# OS files
+Thumbs.db
+
+# Storybook
+.storybook/
+storybook-static/
+
+# PWA files
+**/public/sw.js
+**/public/workbox-*.js
+**/public/worker-*.js
+**/public/fallback-*.js
+**/public/precache.*.js
+**/public/runtime-*.js

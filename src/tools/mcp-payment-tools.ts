@@ -166,19 +166,6 @@ export function createPaymentTools(
           payments: []
         };
       }
-    },
-    {
-      name: 'get_pricing_configuration',
-      description: 'Gets pricing configuration including operation costs, tiers, and modifiers',
-      inputSchema: {
-        type: 'object',
-        properties: {},
-        required: []
-      },
-      handler: async () => {
-        const result = await paymentTools.getPricingConfiguration();
-        return result;
-      }
     }
   ];
 }
