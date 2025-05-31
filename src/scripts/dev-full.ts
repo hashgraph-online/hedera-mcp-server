@@ -5,7 +5,6 @@
  * Port Layout:
  * - 3000: MCP Server (FastMCP SSE/HTTP)
  * - 3001: Admin Portal (Next.js)
- * - 3002: HTTP API (for admin operations)
  */
 import { spawn, ChildProcess } from 'child_process';
 import chalk from 'chalk';

@@ -24,6 +24,7 @@ import {
   Calendar,
   Play,
   CheckCircle,
+  Search,
 } from 'lucide-react';
 
 interface Message {
@@ -49,7 +50,8 @@ type MCPTool =
   | 'generate_transaction_bytes'
   | 'schedule_transaction'
   | 'check_credit_balance'
-  | 'get_pricing_configuration';
+  | 'get_pricing_configuration'
+  | 'execute_query';
 
 /**
  * Formats the response from MCP tools into a structured, readable format
@@ -70,6 +72,8 @@ function formatResponse(result: any, toolName: string): string {
       return formatCreditBalanceResponse(result);
     case 'get_pricing_configuration':
       return formatPricingResponse(result);
+    case 'execute_query':
+      return formatQueryResponse(result);
     default:
       return formatGenericResponse(result);
   }
@@ -227,6 +231,34 @@ function formatPricingResponse(result: any): string {
   return formatGenericResponse(result);
 }
 
+function formatQueryResponse(result: any): string {
+  if (result.error) {
+    return `❌ **Query Error**\n\n${result.error}`;
+  }
+
+  const queryResult = result.result || result;
+
+  let content = `🔍 **Query Executed Successfully**\n\n`;
+
+  if (queryResult.message || result.message) {
+    content += `**Result:**\n${queryResult.message || result.message}\n\n`;
+  }
+
+  if (queryResult.data || queryResult.result) {
+    const data = queryResult.data || queryResult.result;
+    content += `**Data:**\n\`\`\`json\n${JSON.stringify(data, null, 2)}\n\`\`\`\n\n`;
+  } else if (typeof queryResult === 'object' && !queryResult.message) {
+    content += `**Data:**\n\`\`\`json\n${JSON.stringify(queryResult, null, 2)}\n\`\`\`\n\n`;
+  }
+
+  content += `💡 **Tips:**\n`;
+  content += `• Queries are read-only and don't cost HBAR\n`;
+  content += `• Results reflect the current state of the network\n`;
+  content += `• Try queries like "check balance", "get token info", or "show my NFTs"`;
+
+  return content;
+}
+
 function formatGenericResponse(result: any): string {
   return `✅ **Operation Completed**\n\n\`\`\`json\n${JSON.stringify(result, null, 2)}\n\`\`\``;
 }
@@ -293,10 +325,10 @@ function TransactionExecuteButton({
 
   if (executionResult) {
     return (
-      <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+      <div className="mt-3 p-4 bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-50 dark:from-green-900/10 dark:via-emerald-900/10 dark:to-green-900/10 border border-green-200 dark:border-green-800 rounded-xl shadow-lg backdrop-blur-sm">
         <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
-          <span className="text-sm font-medium text-green-700 dark:text-green-300">
+          <CheckCircle className="w-5 h-5 text-hedera-green" />
+          <span className="text-sm font-bold text-green-700 dark:text-green-300">
             Transaction Executed Successfully
           </span>
         </div>
@@ -322,7 +354,7 @@ function TransactionExecuteButton({
         onClick={executeTransaction}
         disabled={isExecuting}
         size="sm"
-        className="bg-gradient-to-r from-hedera-purple to-hedera-blue hover:from-hedera-purple/90 hover:to-hedera-blue/90 text-white"
+        variant="default"
       >
         {isExecuting ? (
           <div className="flex items-center gap-2">
@@ -361,7 +393,7 @@ export function TestChat({}: TestChatProps) {
       id: '1',
       role: 'system',
       content:
-        'Welcome to the Test Lab! 👋\n\nI can help you test Hedera operations. Just:\n1. Choose a tool from the buttons above\n2. Type what you want to do in plain English\n\nExamples:\n• "Send 5 HBAR to account 0.0.1234"\n• "Check how many credits I have"\n• "Create a token called MyToken"',
+        'Welcome to the **Hedera Test Lab** 🚀\n\nI\'m your AI assistant for interacting with the Hedera network using natural language.\n\n**Getting Started:**\n1. Select a tool from above\n2. Type your request naturally\n\n**Example Commands:**\n• 💸 "Send 5 HBAR to 0.0.1234"\n• 💰 "What\'s my HBAR balance?"\n• 🪙 "Create a token called MyToken"\n• 🎨 "Show me my NFTs"\n• 📊 "Get token info for 0.0.456789"\n• 💳 "Check my credit balance"\n\n**Pro tip:** Queries are free and instant! Transactions require credits.',
       timestamp: new Date(),
     },
   ]);
@@ -437,6 +469,12 @@ export function TestChat({}: TestChatProps) {
       icon: CreditCard,
       description: 'Get pricing configuration',
     },
+    {
+      value: 'execute_query',
+      label: 'Query Network',
+      icon: Search,
+      description: 'Query balances, tokens, NFTs, and more',
+    },
   ];
 
   /**
@@ -470,14 +508,14 @@ export function TestChat({}: TestChatProps) {
       setMessages(prev => [...prev, assistantMessage]);
 
       const mcpClient = getMCPClient();
-      mcpClient.setApiKey(apiKey);
 
       let params: Record<string, string> = {};
 
       if (
         selectedTool === 'execute_transaction' ||
         selectedTool === 'generate_transaction_bytes' ||
-        selectedTool === 'schedule_transaction'
+        selectedTool === 'schedule_transaction' ||
+        selectedTool === 'execute_query'
       ) {
         params = { request: input.trim() };
       }
@@ -548,29 +586,29 @@ export function TestChat({}: TestChatProps) {
   };
 
   return (
-    <Card className="bg-card backdrop-blur-xl border border-hedera-purple/10 shadow-xl flex flex-col h-[800px] max-h-[100vh]">
-      <CardHeader className="flex-shrink-0 border-b border-hedera-purple/10 pb-4">
+    <Card className="flex flex-col h-[500px] sm:h-[600px] md:h-[700px] lg:h-[800px] max-h-[80vh] overflow-hidden">
+      <CardHeader className="border-b">
         <div className="space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-gradient-to-br from-hedera-purple/20 to-hedera-blue/20 rounded-lg flex-shrink-0">
-                <Bot className="w-5 h-5 text-hedera-purple" />
+              <div className="p-2.5 bg-hedera-purple rounded-xl flex-shrink-0 shadow-lg shadow-hedera-purple/20">
+                <Bot className="w-5 h-5 text-white" />
               </div>
               <div className="min-w-0">
-                <h4 className="font-bold text-primary truncate">
-                  MCP Test Interface
+                <h4 className="font-bold text-gray-900 dark:text-white truncate text-lg">
+                  Hedera Test Lab
                 </h4>
-                <p className="text-xs text-secondary truncate">
-                  Natural language processing enabled
+                <p className="text-xs text-gray-500 dark:text-gray-400 truncate font-medium">
+                  Talk to your MCP Server with natural language
                 </p>
               </div>
             </div>
             <Badge
-              variant="outline"
-              className="border-hedera-green/30 text-hedera-green self-start sm:self-auto"
+              variant="connected"
+              className="self-start sm:self-auto"
             >
-              <div className="w-2 h-2 bg-hedera-green rounded-full mr-1 animate-pulse" />
-              LIVE
+              <div className="w-2 h-2 bg-hedera-green rounded-full mr-2 animate-pulse shadow-sm shadow-hedera-green" />
+              CONNECTED
             </Badge>
           </div>
 
@@ -582,10 +620,10 @@ export function TestChat({}: TestChatProps) {
                 <button
                   key={tool.value}
                   onClick={() => setSelectedTool(tool.value)}
-                  className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                  className={`px-4 py-2.5 rounded-xl text-xs font-semibold transition-all duration-300 transform ${
                     isActive
-                      ? 'bg-gradient-to-r from-hedera-purple to-hedera-blue text-white shadow-sm'
-                      : 'bg-tertiary text-primary hover:bg-secondary'
+                      ? 'bg-hedera-purple text-white shadow-lg scale-105'
+                      : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 hover:shadow-md'
                   }`}
                 >
                   <div className="flex items-center gap-2">
@@ -612,16 +650,12 @@ export function TestChat({}: TestChatProps) {
               key={message.id}
               className={`flex gap-2 sm:gap-3 ${
                 message.role === 'user' ? 'justify-end' : 'justify-start'
-              } animate-fade-in`}
+              } animate-in fade-in-0 slide-in-from-bottom-2 duration-300`}
             >
               {message.role !== 'user' && (
-                <Avatar className="w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0">
+                <Avatar size="md" hasRing>
                   <AvatarFallback
-                    className={`${
-                      message.role === 'system'
-                        ? 'bg-gradient-to-br from-hedera-purple to-hedera-blue text-white'
-                        : 'bg-gradient-to-br from-hedera-blue to-hedera-green text-white'
-                    }`}
+                    gradient={message.role === 'system' ? 'system' : 'assistant'}
                   >
                     {message.role === 'system' ? (
                       <Zap className="w-3 h-3 sm:w-4 sm:h-4" />
@@ -635,43 +669,68 @@ export function TestChat({}: TestChatProps) {
               <div
                 className={`max-w-[85%] sm:max-w-[70%] ${
                   message.role === 'user'
-                    ? 'bg-gradient-to-br from-hedera-purple to-hedera-blue text-white'
+                    ? 'bg-hedera-purple text-white shadow-lg'
                     : message.role === 'system'
-                      ? 'bg-tertiary'
-                      : 'bg-card border border-primary'
-                } rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-md`}
+                      ? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-200 dark:border-gray-700 shadow-lg backdrop-blur-sm'
+                      : 'bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-gray-100 shadow-lg'
+                } rounded-2xl px-4 sm:px-5 py-3 sm:py-4 transition-all duration-200 hover:shadow-xl`}
               >
                 {message.role === 'user' && message.tool && (
-                  <div className="text-xs opacity-80 mb-1">
-                    Tool: {message.tool}
+                  <div className="text-xs mb-1.5 font-semibold flex items-center gap-1 text-white/90">
+                    <span className="text-lg">🛠️</span>{' '}
+                    {message.tool.replace(/_/g, ' ').toUpperCase()}
                   </div>
                 )}
                 <div className="flex items-start justify-between gap-2">
-                  <p className="text-xs sm:text-sm whitespace-pre-wrap break-words flex-1 overflow-hidden text-inherit">
-                    {message.content}
-                  </p>
+                  <div
+                    className={`text-xs sm:text-sm whitespace-pre-wrap break-words flex-1 overflow-hidden prose prose-sm max-w-none ${
+                      message.role === 'user'
+                        ? 'text-white prose-invert'
+                        : 'text-inherit dark:prose-invert'
+                    }`}
+                  >
+                    {message.content.split(/(\*\*[^*]+\*\*)/).map((part, i) => {
+                      if (part.startsWith('**') && part.endsWith('**')) {
+                        return <strong key={i}>{part.slice(2, -2)}</strong>;
+                      }
+                      return part;
+                    })}
+                  </div>
                   {message.status === 'sending' && (
-                    <Loader2 className="w-3 h-3 sm:w-4 sm:h-4 animate-spin flex-shrink-0" />
+                    <Loader2
+                      className={`w-3 h-3 sm:w-4 sm:h-4 animate-spin flex-shrink-0 ${
+                        message.role === 'user' ? 'text-white' : ''
+                      }`}
+                    />
                   )}
                   {message.status === 'error' && (
                     <AlertCircle className="w-3 h-3 sm:w-4 sm:h-4 text-red-500 flex-shrink-0" />
                   )}
                   {message.status === 'success' &&
-                  message.role === 'assistant' &&
+                  message.role !== 'user' &&
                   message.result ? (
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="p-0.5 sm:p-1 h-auto"
-                      onClick={() =>
-                        copyToClipboard(JSON.stringify(message.result, null, 2))
-                      }
+                      className="p-0.5 sm:p-1 h-auto rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                      onClick={() => {
+                        copyToClipboard(
+                          JSON.stringify(message.result, null, 2),
+                        );
+                      }}
+                      title="Copy result"
                     >
-                      <Copy className="w-3 h-3" />
+                      <Copy className="w-3 h-3 hover:scale-110 transition-transform" />
                     </Button>
                   ) : null}
                 </div>
-                <div className="text-xs opacity-60 mt-1">
+                <div
+                  className={`text-xs mt-1 font-medium ${
+                    message.role === 'user'
+                      ? 'text-white/70'
+                      : 'text-gray-500 dark:text-gray-400'
+                  }`}
+                >
                   {message.timestamp.toLocaleTimeString()}
                 </div>
 
@@ -687,8 +746,8 @@ export function TestChat({}: TestChatProps) {
               </div>
 
               {message.role === 'user' && (
-                <Avatar className="w-6 h-6 sm:w-8 sm:h-8 flex-shrink-0">
-                  <AvatarFallback className="bg-gradient-to-br from-gray-400 to-gray-600 text-white">
+                <Avatar size="md" hasRing>
+                  <AvatarFallback gradient="user">
                     <User className="w-3 h-3 sm:w-4 sm:h-4" />
                   </AvatarFallback>
                 </Avatar>
@@ -697,16 +756,16 @@ export function TestChat({}: TestChatProps) {
           ))}
           {isLoading && (
             <div className="flex gap-2 sm:gap-3 justify-start animate-fade-in">
-              <Avatar className="w-6 h-6 sm:w-8 sm:h-8">
-                <AvatarFallback className="bg-gradient-to-br from-hedera-blue to-hedera-green text-white">
+              <Avatar size="md" hasRing>
+                <AvatarFallback gradient="assistant">
                   <Bot className="w-3 h-3 sm:w-4 sm:h-4" />
                 </AvatarFallback>
               </Avatar>
-              <div className="bg-card border border-primary rounded-2xl px-3 sm:px-4 py-2 sm:py-3 shadow-md">
+              <div className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-2xl px-4 sm:px-5 py-3 sm:py-4 shadow-lg">
                 <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">
-                    Processing with {selectedTool}...
+                  <Loader2 className="w-4 h-4 animate-spin text-hedera-purple" />
+                  <span className="text-sm font-medium bg-gradient-to-r from-hedera-purple to-hedera-blue bg-clip-text text-transparent">
+                    Processing {selectedTool.replace(/_/g, ' ')}...
                   </span>
                 </div>
               </div>
@@ -715,9 +774,9 @@ export function TestChat({}: TestChatProps) {
         </div>
       </div>
 
-      <Separator className="bg-hedera-purple/10" />
+      <div className="h-px bg-gradient-to-r from-transparent via-gray-200 dark:via-gray-700 to-transparent" />
 
-      <CardContent className="flex-shrink-0 p-3 sm:p-4">
+      <CardContent className="flex-shrink-0 p-4 sm:p-5 bg-gray-50 dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
         <div className="flex gap-2">
           <Textarea
             ref={textareaRef}
@@ -725,13 +784,15 @@ export function TestChat({}: TestChatProps) {
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyPress}
             placeholder={`Type your ${selectedTool.replace(/_/g, ' ')} request naturally...`}
-            className="min-h-[50px] sm:min-h-[60px] max-h-[100px] sm:max-h-[120px] resize-none border-hedera-purple/20 focus:border-hedera-purple/40 text-xs sm:text-sm"
+            variant="chat"
             disabled={isLoading || !apiKey}
           />
           <Button
             onClick={handleSend}
             disabled={isLoading || !input.trim() || !apiKey}
-            className="bg-gradient-to-r from-hedera-purple to-hedera-blue hover:from-hedera-purple/90 hover:to-hedera-blue/90 text-white px-3 sm:px-6"
+            variant="send"
+            size="default"
+            className="h-[50px] sm:h-[60px] px-4 sm:px-6"
           >
             {isLoading ? (
               <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
@@ -741,7 +802,8 @@ export function TestChat({}: TestChatProps) {
           </Button>
         </div>
         {!apiKey && (
-          <p className="text-xs text-red-500 mt-2">
+          <p className="text-xs text-red-500 dark:text-red-400 mt-2 font-medium flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
             Please connect your wallet to use the test interface
           </p>
         )}

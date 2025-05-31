@@ -1,5 +1,6 @@
 import { PrivateKey } from '@hashgraph/sdk';
 import { HashinalsWalletConnectSDK } from '@hashgraphonline/hashinal-wc';
+import { MCPClient } from '../mcp-client';
 
 interface AuthChallenge {
   challengeId: string;
@@ -17,7 +18,7 @@ interface AuthResponse {
 
 interface MCPAuthClientOptions {
   sdk: HashinalsWalletConnectSDK;
-  apiBaseUrl?: string;
+  mcpUrl?: string;
 }
 
 /**
@@ -25,8 +26,7 @@ interface MCPAuthClientOptions {
  */
 export class MCPAuthClient {
   private sdk: HashinalsWalletConnectSDK;
-  private apiBaseUrl: string;
-  private apiKey: string | null = null;
+  private mcpClient: MCPClient;
   private keyExpiresAt: Date | null = null;
   private rotationCheckInterval: NodeJS.Timeout | null = null;
   private readonly DB_NAME = 'mcp-auth';
@@ -34,10 +34,11 @@ export class MCPAuthClient {
 
   constructor(options: MCPAuthClientOptions) {
     this.sdk = options.sdk;
-    this.apiBaseUrl =
-      options.apiBaseUrl ||
-      process.env.NEXT_PUBLIC_AUTH_API_URL ||
-      'http://localhost:3002';
+    const mcpUrl =
+      options.mcpUrl ||
+      process.env.NEXT_PUBLIC_MCP_URL ||
+      'http://localhost:3000/stream';
+    this.mcpClient = new MCPClient(mcpUrl);
     this.startRotationCheck();
   }
 
@@ -46,6 +47,7 @@ export class MCPAuthClient {
    */
   async initialize(): Promise<void> {
     await this.loadStoredApiKey();
+    await this.mcpClient.connect();
   }
 
   /**
@@ -155,20 +157,13 @@ export class MCPAuthClient {
   private async requestChallenge(
     hederaAccountId: string,
   ): Promise<AuthChallenge> {
-    const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/challenge`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ hederaAccountId }),
-    });
+    const result = await this.mcpClient.requestAuthChallenge(hederaAccountId);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to request challenge');
-    }
-
-    return await response.json();
+    return {
+      challengeId: result.challengeId,
+      challenge: result.challenge,
+      expiresAt: result.expiresAt,
+    };
   }
 
   /**
@@ -186,20 +181,17 @@ export class MCPAuthClient {
     permissions?: string[];
     expiresIn?: number;
   }): Promise<AuthResponse> {
-    const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/verify`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(params),
-    });
+    const result = await this.mcpClient.verifyAuthSignature(params);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to verify signature');
-    }
-
-    return await response.json();
+    return {
+      apiKey: result.apiKey,
+      keyId: result.keyId,
+      expiresAt: result.expiresAt,
+      permissions:
+        typeof result.permissions === 'string'
+          ? JSON.parse(result.permissions)
+          : result.permissions,
+    };
   }
 
   /**
@@ -224,24 +216,14 @@ export class MCPAuthClient {
    * @returns {Promise<any[]>} List of API keys
    */
   async listApiKeys(): Promise<any[]> {
-    if (!this.apiKey) {
-      throw new Error('No API key available');
+    const accountInfo = this.sdk.getAccountInfo();
+    if (!accountInfo) {
+      throw new Error('No wallet connected');
     }
 
-    const response = await fetch(`${this.apiBaseUrl}/api/v1/auth/keys`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-    });
+    const result = await this.mcpClient.getApiKeys(accountInfo.accountId);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to list API keys');
-    }
-
-    const data = await response.json();
-    return data.keys;
+    return result.keys;
   }
 
   /**
@@ -250,26 +232,46 @@ export class MCPAuthClient {
    * @returns {Promise<any>} Success response
    */
   async revokeApiKey(keyId: string): Promise<any> {
-    if (!this.apiKey) {
-      throw new Error('No API key available');
+    const accountInfo = this.sdk.getAccountInfo();
+    if (!accountInfo) {
+      throw new Error('No wallet connected');
     }
 
-    const response = await fetch(
-      `${this.apiBaseUrl}/api/v1/auth/keys/${keyId}`,
-      {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-      },
-    );
+    const result = await this.mcpClient.revokeApiKey({
+      keyId,
+      hederaAccountId: accountInfo.accountId,
+    });
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to revoke API key');
+    return result;
+  }
+
+  /**
+   * Rotate an API key
+   * @param {string} keyId - The ID of the key to rotate
+   * @returns {Promise<AuthResponse>} New API key response
+   */
+  async rotateApiKeyById(keyId: string): Promise<AuthResponse> {
+    const accountInfo = this.sdk.getAccountInfo();
+    if (!accountInfo) {
+      throw new Error('No wallet connected');
     }
 
-    return await response.json();
+    const result = await this.mcpClient.rotateApiKey({
+      keyId,
+      hederaAccountId: accountInfo.accountId,
+    });
+
+    await this.storeApiKey(result.apiKey, result.expiresAt);
+
+    return {
+      apiKey: result.apiKey,
+      keyId: result.keyId,
+      expiresAt: result.expiresAt,
+      permissions:
+        typeof result.permissions === 'string'
+          ? JSON.parse(result.permissions)
+          : result.permissions,
+    };
   }
 
   /**
@@ -277,7 +279,7 @@ export class MCPAuthClient {
    * @returns The stored API key or null
    */
   getStoredApiKey(): string | null {
-    return this.apiKey;
+    return this.mcpClient.getApiKey();
   }
 
   /**
@@ -299,12 +301,12 @@ export class MCPAuthClient {
    * @returns New API key response
    */
   async rotateApiKey(): Promise<AuthResponse> {
-    if (!this.apiKey) {
+    if (!this.mcpClient.getApiKey()) {
       throw new Error('No API key to rotate');
     }
 
     const keys = await this.listApiKeys();
-    const currentKey = keys.find(k => k.id === this.apiKey);
+    const currentKey = keys.find(k => k.id === this.mcpClient.getApiKey());
 
     if (!currentKey) {
       throw new Error('Current API key not found');
@@ -324,7 +326,7 @@ export class MCPAuthClient {
    * Clear stored API key and disconnect wallet
    */
   async logout(): Promise<void> {
-    this.apiKey = null;
+    this.mcpClient.setApiKey(null);
     this.keyExpiresAt = null;
 
     const db = await this.openDB();
@@ -368,17 +370,17 @@ export class MCPAuthClient {
    * @param expiresAt - When the key expires
    */
   private async storeApiKey(apiKey: string, expiresAt?: string): Promise<void> {
-    this.apiKey = apiKey;
+    this.mcpClient.setApiKey(apiKey);
     this.keyExpiresAt = expiresAt ? new Date(expiresAt) : null;
 
     const db = await this.openDB();
     const tx = db.transaction(this.STORE_NAME, 'readwrite');
     const store = tx.objectStore(this.STORE_NAME);
 
-    const apiKeyRequest = store.put(apiKey, 'api_key');
-    const expiresRequest = expiresAt
-      ? store.put(expiresAt, 'api_key_expires')
-      : null;
+    store.put(apiKey, 'api_key');
+    if (expiresAt) {
+      store.put(expiresAt, 'api_key_expires');
+    }
 
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
@@ -409,7 +411,7 @@ export class MCPAuthClient {
       });
 
       if (apiKey) {
-        this.apiKey = apiKey;
+        this.mcpClient.setApiKey(apiKey);
         this.keyExpiresAt = expiresAt ? new Date(expiresAt) : null;
 
         if (this.keyExpiresAt && this.keyExpiresAt < new Date()) {

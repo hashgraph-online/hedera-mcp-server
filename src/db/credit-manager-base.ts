@@ -90,6 +90,11 @@ export abstract class CreditManagerBase {
     this.operationCosts.set('generate_transaction_bytes', 10);
     this.operationCosts.set('schedule_transaction', 20);
     this.operationCosts.set('execute_transaction', 50);
+    this.operationCosts.set('request_auth_challenge', 0);
+    this.operationCosts.set('verify_auth_signature', 0);
+    this.operationCosts.set('get_api_keys', 0);
+    this.operationCosts.set('rotate_api_key', 0);
+    this.operationCosts.set('revoke_api_key', 0);
   }
 
   /**

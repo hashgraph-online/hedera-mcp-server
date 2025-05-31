@@ -9,7 +9,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
     <div
       ref={ref}
       className={cn(
-        "hashscan-card",
+        "rounded-lg border bg-white dark:bg-[#1a1a1a] shadow-sm",
         className
       )}
       {...props}

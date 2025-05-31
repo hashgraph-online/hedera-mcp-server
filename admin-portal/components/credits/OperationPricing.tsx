@@ -46,6 +46,12 @@ const OPERATION_DESCRIPTIONS: Record<string, string> = {
     'Generate transaction bytes for any Hedera operation without execution',
   schedule_transaction: 'Create scheduled transaction for any Hedera operation',
   execute_transaction: 'Execute any Hedera transaction immediately',
+  request_auth_challenge:
+    'Request authentication challenge for a Hedera account',
+  verify_auth_signature: 'Verify authentication signature and generate API key',
+  get_api_keys: 'Get API keys for authenticated account',
+  rotate_api_key: 'Rotate an API key for the authenticated account',
+  revoke_api_key: 'Revoke an API key for the authenticated account',
 };
 
 const OPERATION_CATEGORIES: Record<
@@ -66,6 +72,11 @@ const OPERATION_CATEGORIES: Record<
   generate_transaction_bytes: 'standard',
   schedule_transaction: 'standard',
   execute_transaction: 'premium',
+  request_auth_challenge: 'free',
+  verify_auth_signature: 'free',
+  get_api_keys: 'free',
+  rotate_api_key: 'free',
+  revoke_api_key: 'free',
 };
 
 const CATEGORY_COLORS = {
@@ -105,8 +116,6 @@ export function OperationPricing({}) {
         if (!apiKey) {
           return;
         }
-
-        mcpClient.setApiKey(apiKey);
 
         try {
           const result = await mcpClient.getPricingConfiguration();

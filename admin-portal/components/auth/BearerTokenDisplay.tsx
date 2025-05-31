@@ -42,9 +42,9 @@ export function BearerTokenDisplay({}: BearerTokenDisplayProps) {
 
   if (!isConnected || !apiKey) {
     return (
-      <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-hedera-purple/20">
+      <Card>
         <CardHeader>
-          <CardTitle className="text-lg font-bold hedera-gradient-text flex items-center gap-2">
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
             <Copy className="w-5 h-5" />
             FastMCP Inspector Token
           </CardTitle>
@@ -60,15 +60,15 @@ export function BearerTokenDisplay({}: BearerTokenDisplayProps) {
   }
 
   return (
-    <Card className="bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border-hedera-purple/20">
+    <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg font-bold hedera-gradient-text flex items-center gap-2">
+          <CardTitle className="text-lg font-bold flex items-center gap-2">
             <Copy className="w-5 h-5" />
             FastMCP Inspector Token
           </CardTitle>
-          <Badge variant="outline" className="border-green-500 text-green-700 dark:text-green-400">
-            <div className="w-2 h-2 bg-green-500 rounded-full mr-1 animate-pulse" />
+          <Badge variant="outline" className="border-green-600 dark:border-green-400 text-green-700 dark:text-green-400">
+            <div className="w-2 h-2 bg-green-600 dark:bg-green-400 rounded-full mr-1 animate-pulse" />
             Active
           </Badge>
         </div>
@@ -99,7 +99,7 @@ export function BearerTokenDisplay({}: BearerTokenDisplayProps) {
               className="px-3"
             >
               {copied ? (
-                <CheckCircle className="w-4 h-4 text-green-600" />
+                <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
               ) : (
                 <Copy className="w-4 h-4" />
               )}
@@ -145,7 +145,7 @@ export function BearerTokenDisplay({}: BearerTokenDisplayProps) {
                 variant="outline"
                 size="sm"
                 onClick={() => window.open(inspectorUrl, '_blank')}
-                className="text-blue-600 border-blue-300 hover:bg-blue-100 dark:text-blue-400 dark:border-blue-600"
+                className="text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
               >
                 <ExternalLink className="w-4 h-4 mr-2" />
                 Open MCP Inspector

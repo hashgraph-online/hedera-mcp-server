@@ -41,8 +41,7 @@ services:
     container_name: hedera-mcp
     ports:
       - "${MCP_PORT:-3000}:3000"      # MCP Server
-      - "${ADMIN_PORT:-3001}:3001"    # Admin Portal  
-      - "${API_PORT:-3002}:3002"      # HTTP API
+      - "${ADMIN_PORT:-3001}:3001"    # Admin Portal
     environment:
       <<: *app-environment
       NODE_ENV: ${NODE_ENV:-production}

@@ -30,7 +30,7 @@ export abstract class AuthenticatedToolBase {
     options?: {
       requiresAuth?: boolean;
       freeAccess?: boolean;
-    }
+    },
   ) {
     this.name = name;
     this.description = description;
@@ -47,7 +47,7 @@ export abstract class AuthenticatedToolBase {
   async execute(params: any, context: ToolContext): Promise<any> {
     const accountId = this.extractAccountId(context);
     const requestId = context.session?.auth?.requestId || 'unknown';
-    
+
     context.logger.info(`Tool ${this.name} invoked`, {
       accountId,
       requestId,
@@ -60,20 +60,20 @@ export abstract class AuthenticatedToolBase {
 
     if (!this.freeAccess && context.creditManager && accountId) {
       const startTime = Date.now();
-      
+
       try {
         const result = await this.executeWithCredits(
           params,
           accountId,
-          context
+          context,
         );
-        
+
         context.logger.info(`Tool ${this.name} completed successfully`, {
           accountId,
           requestId,
           executionTime: Date.now() - startTime,
         });
-        
+
         return result;
       } catch (error) {
         context.logger.error(`Tool ${this.name} failed`, {
@@ -82,7 +82,7 @@ export abstract class AuthenticatedToolBase {
           executionTime: Date.now() - startTime,
           error: error instanceof Error ? error.message : 'Unknown error',
         });
-        
+
         throw error;
       }
     } else {
@@ -109,7 +109,7 @@ export abstract class AuthenticatedToolBase {
   private async executeWithCredits(
     params: any,
     accountId: string,
-    context: ToolContext
+    context: ToolContext,
   ): Promise<any> {
     if (!context.creditManager) {
       throw new Error('Credit manager not available');
@@ -118,7 +118,7 @@ export abstract class AuthenticatedToolBase {
     const hasCredits = await context.creditManager.checkSufficientCredits(
       accountId,
       this.name,
-      {}
+      {},
     );
 
     if (!hasCredits) {
@@ -128,9 +128,12 @@ export abstract class AuthenticatedToolBase {
     try {
       const result = await this.executeImpl(params, accountId, context);
 
-      const operationCost = await context.creditManager.getOperationCost(this.name);
-      const currentBalance = await context.creditManager.getCreditBalance(accountId);
-      
+      const operationCost = await context.creditManager.getOperationCost(
+        this.name,
+      );
+      const currentBalance =
+        await context.creditManager.getCreditBalance(accountId);
+
       await context.creditManager.recordCreditTransaction({
         accountId,
         transactionType: 'consumption',
@@ -138,7 +141,7 @@ export abstract class AuthenticatedToolBase {
         balanceAfter: (currentBalance?.balance || 0) - operationCost,
         description: `Consumed credits for ${this.name}`,
         relatedOperation: this.name,
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
       });
 
       return result;
@@ -157,7 +160,7 @@ export abstract class AuthenticatedToolBase {
   protected abstract executeImpl(
     params: any,
     accountId: string | undefined,
-    context: ToolContext
+    context: ToolContext,
   ): Promise<any>;
 
   /**
@@ -172,7 +175,7 @@ export abstract class AuthenticatedToolBase {
     accountId: string | undefined,
     params: any,
     result?: any,
-    error?: any
+    error?: any,
   ): Record<string, any> {
     return {
       timestamp: new Date().toISOString(),
@@ -180,7 +183,7 @@ export abstract class AuthenticatedToolBase {
       accountId,
       params: this.sanitizeParams(params),
       success: !error,
-      error: error ? (error.message || 'Unknown error') : undefined,
+      error: error ? error.message || 'Unknown error' : undefined,
       resultSummary: result ? this.summarizeResult(result) : undefined,
     };
   }
@@ -192,14 +195,14 @@ export abstract class AuthenticatedToolBase {
    */
   protected sanitizeParams(params: any): any {
     const sanitized = { ...params };
-    
+
     const sensitiveFields = ['privateKey', 'password', 'secret', 'key'];
     for (const field of sensitiveFields) {
       if (sanitized[field]) {
         sanitized[field] = '[REDACTED]';
       }
     }
-    
+
     return sanitized;
   }
 

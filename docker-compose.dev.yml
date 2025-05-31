@@ -11,8 +11,7 @@ services:
     container_name: hedera-dev
     ports:
       - "3000:3000"      # MCP Server
-      - "3001:3001"      # Admin Portal  
-      - "3002:3002"      # HTTP API
+      - "3001:3001"      # Admin Portal
       - "9229:9229"      # Node.js debugger
     environment:
       # Development settings

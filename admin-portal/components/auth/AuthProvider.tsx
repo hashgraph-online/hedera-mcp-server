@@ -12,7 +12,6 @@ import { LedgerId } from '@hashgraph/sdk';
 import { HEDERA_CONFIG } from '@/lib/constants/config';
 import { HederaMirrorNode, Logger } from '@hashgraphonline/standards-sdk';
 import type { AuthState, User } from '@/types/auth';
-import { getApiClient, AuthenticationError } from '@/lib/api-client';
 import { MCPAuthClient } from '@/lib/auth/mcp-auth-client';
 import { getMCPClient } from '@/lib/mcp-client';
 
@@ -71,8 +70,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const fetchUserData = useCallback(
     async (accountId: string) => {
       try {
-        const apiClient = getApiClient();
-
         const hbarData = mirrorNode
           ? await mirrorNode.getAccountBalance(accountId)
           : null;
@@ -90,16 +87,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
             };
           } catch (error) {
             logger.error('Failed to fetch credit balance from MCP', { error });
-            try {
-              creditData = await apiClient.getCreditBalance(accountId);
-            } catch (apiError) {
-              if (apiError instanceof AuthenticationError) {
-                setAuthState(prev => ({ ...prev, apiKey: null }));
-                apiClient.setApiKey(null);
-                const mcpClient = getMCPClient();
-                mcpClient.setApiKey(null);
-              }
-            }
+            setAuthState(prev => ({ ...prev, apiKey: null }));
+            const mcpClient = getMCPClient();
+            mcpClient.setApiKey(null);
           }
         }
 
@@ -120,21 +110,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
           isLoading: false,
         }));
       } catch (error) {
-        if (error instanceof AuthenticationError) {
-          logger.info('Authentication expired, need to re-authenticate');
-          setAuthState(prev => ({
-            ...prev,
-            apiKey: null,
-            isLoading: false,
-          }));
-          const apiClient = getApiClient();
-          apiClient.setApiKey(null);
-          const mcpClient = getMCPClient();
-          mcpClient.setApiKey(null);
-        } else {
-          logger.error('Failed to fetch user data', { error });
-          setAuthState(prev => ({ ...prev, isLoading: false }));
-        }
+        logger.error('Failed to fetch user data', { error });
+        setAuthState(prev => ({ ...prev, isLoading: false }));
       } finally {
         if (authState.apiKey) {
           const mcpClient = getMCPClient();
@@ -169,11 +146,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const storedApiKey = authClient.getStoredApiKey();
         if (storedApiKey) {
           setAuthState(prev => ({ ...prev, apiKey: storedApiKey }));
-          const apiClient = getApiClient();
-          apiClient.setApiKey(storedApiKey);
           const mcpClient = getMCPClient();
           mcpClient.setApiKey(storedApiKey);
-        } else {
         }
 
         const mirrorNodeLogger = Logger.getInstance({
@@ -216,7 +190,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (mirrorNode && authState.user) {
       fetchUserData(authState.user.accountId);
     }
-  }, [mirrorNode, authState.user?.accountId]);
+  }, [mirrorNode, authState?.user?.accountId, fetchUserData]);
 
   const connect = useCallback(async () => {
     if (!sdk) return;
@@ -287,8 +261,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       setAuthState(prev => ({ ...prev, apiKey: authResponse.apiKey }));
 
-      const apiClient = getApiClient();
-      apiClient.setApiKey(authResponse.apiKey);
+      const mcpClient = getMCPClient();
+      mcpClient.setApiKey(authResponse.apiKey);
 
       logger.info('MCP authentication successful');
     } catch (error) {
@@ -310,8 +284,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const storedKey = mcpAuthClient.getStoredApiKey();
         if (storedKey && storedKey !== authState.apiKey) {
           setAuthState(prev => ({ ...prev, apiKey: storedKey }));
-          const apiClient = getApiClient();
-          apiClient.setApiKey(storedKey);
           const mcpClient = getMCPClient();
           mcpClient.setApiKey(storedKey);
         }

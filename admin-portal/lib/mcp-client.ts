@@ -350,6 +350,83 @@ export class MCPClient {
   }
 
   /**
+   * Request authentication challenge from MCP server
+   * @param hederaAccountId The Hedera account ID requesting authentication
+   * @returns Authentication challenge details
+   */
+  async requestAuthChallenge(hederaAccountId: string): Promise<{
+    challengeId: string;
+    challenge: string;
+    expiresAt: string;
+  }> {
+    return await this.callTool('request_auth_challenge', { hederaAccountId });
+  }
+
+  /**
+   * Verify signature and authenticate with MCP server
+   * @param params Authentication parameters including signature and challenge
+   * @returns API key and authentication details
+   */
+  async verifyAuthSignature(params: {
+    challengeId: string;
+    hederaAccountId: string;
+    signature: string;
+    publicKey: string;
+    timestamp: number;
+    name?: string;
+    permissions?: string[];
+    expiresIn?: number;
+  }): Promise<{
+    apiKey: string;
+    keyId: string;
+    expiresAt?: string;
+    permissions: string[];
+  }> {
+    return await this.callTool('verify_auth_signature', params);
+  }
+
+  /**
+   * Get API keys for the authenticated account
+   * @param hederaAccountId - The Hedera account ID (optional, will use authenticated account if not provided)
+   * @returns List of API keys for the account
+   */
+  async getApiKeys(hederaAccountId?: string): Promise<{
+    keys: any[];
+  }> {
+    if (hederaAccountId) {
+      return await this.callTool('get_api_keys', { hederaAccountId });
+    }
+    return await this.callTool('get_api_keys', {});
+  }
+
+  /**
+   * Rotate an API key
+   * @param params - Rotation parameters
+   * @returns New API key details
+   */
+  async rotateApiKey(params: { keyId: string; hederaAccountId: string }): Promise<{
+    apiKey: string;
+    keyId: string;
+    expiresAt?: string;
+    message: string;
+  }> {
+    return await this.callTool('rotate_api_key', params);
+  }
+
+  /**
+   * Revoke an API key
+   * @param params - Revocation parameters
+   * @returns Revocation status
+   */
+  async revokeApiKey(params: { keyId: string; hederaAccountId: string }): Promise<{
+    success: boolean;
+    message: string;
+    keyId: string;
+  }> {
+    return await this.callTool('revoke_api_key', params);
+  }
+
+  /**
    * Gets credit transaction history
    * @param {string} accountId - The Hedera account ID
    * @param {number} limit - Maximum number of records to return

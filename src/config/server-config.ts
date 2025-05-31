@@ -13,8 +13,7 @@ const ServerConfigSchema = z.object({
     .default('development'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
 
-  AUTH_API_PORT: z.string().default('3003').transform(Number),
-  HTTP_API_PORT: z.string().default('3002').transform(Number),
+  METRICS_PORT: z.string().default('3003').transform(Number),
 
   HEDERA_NETWORK: z.enum(['mainnet', 'testnet']).default('testnet'),
   HEDERA_OPERATOR_ID: z.string().min(1, 'Hedera operator ID is required'),

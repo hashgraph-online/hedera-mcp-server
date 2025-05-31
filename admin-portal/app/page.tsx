@@ -47,7 +47,7 @@ export default function DashboardPage({}: DashboardPageProps) {
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="bg-card border-b border-border">
+      <header className="bg-white border-b border-border">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-3">
@@ -72,7 +72,7 @@ export default function DashboardPage({}: DashboardPageProps) {
             <div className="max-w-3xl mx-auto space-y-8">
               <div className="space-y-4">
                 <h2 className="text-4xl font-bold text-foreground">
-                  Welcome to Hedera Portal
+                  Welcome to Hedera AI Studio
                 </h2>
                 <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
                   Connect your wallet to start using Hedera services. Buy
@@ -135,7 +135,7 @@ export default function DashboardPage({}: DashboardPageProps) {
           <AuthRequired>
             <div className="space-y-6">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Card className="bg-card border-border">
+                <Card className=" border-border">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -155,7 +155,7 @@ export default function DashboardPage({}: DashboardPageProps) {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-card border-border">
+                <Card className=" border-border">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -176,7 +176,7 @@ export default function DashboardPage({}: DashboardPageProps) {
                   </CardContent>
                 </Card>
 
-                <Card className="bg-card border-border">
+                <Card className=" border-border">
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
                       <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -196,185 +196,170 @@ export default function DashboardPage({}: DashboardPageProps) {
                 </Card>
               </div>
 
-              <Card className="bg-card border-border">
-                <Tabs
-                  value={activeTab}
-                  onValueChange={setActiveTab}
-                  className="w-full"
-                >
-                  <div className="border-b border-border px-6">
-                    <TabsList className="grid w-full max-w-2xl grid-cols-4 bg-transparent h-auto p-0 gap-4">
-                      <TabsTrigger
-                        value="overview"
-                        className="data-[state=active]:bg-tertiary data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-semibold rounded-none pb-4 pt-4"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <Info className="w-4 h-4" />
-                          <span className="text-xs font-medium">Overview</span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="buy"
-                        className="data-[state=active]:bg-tertiary data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-semibold rounded-none pb-4 pt-4"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <ShoppingCart className="w-4 h-4" />
-                          <span className="text-xs font-medium">
-                            Buy Credits
-                          </span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="history"
-                        className="data-[state=active]:bg-tertiary data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-semibold rounded-none pb-4 pt-4"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <Receipt className="w-4 h-4" />
-                          <span className="text-xs font-medium">History</span>
-                        </div>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="test"
-                        className="data-[state=active]:bg-tertiary data-[state=active]:shadow-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:font-semibold rounded-none pb-4 pt-4"
-                      >
-                        <div className="flex flex-col items-center gap-1">
-                          <MessageSquare className="w-4 h-4" />
-                          <span className="text-xs font-medium">MCP Chat</span>
-                        </div>
-                      </TabsTrigger>
-                    </TabsList>
-                  </div>
+              <Tabs
+                value={activeTab}
+                onValueChange={setActiveTab}
+                className="w-full"
+              >
+                <Card className="mb-6">
+                  <TabsList className="grid w-full grid-cols-4 p-1">
+                    <TabsTrigger value="overview">
+                      <div className="flex flex-col items-center gap-1">
+                        <Info className="w-4 h-4" />
+                        <span className="text-xs font-medium">Overview</span>
+                      </div>
+                    </TabsTrigger>
+                    <TabsTrigger value="buy">
+                      <div className="flex flex-col items-center gap-1">
+                        <ShoppingCart className="w-4 h-4" />
+                        <span className="text-xs font-medium">Buy Credits</span>
+                      </div>
+                    </TabsTrigger>
+                    <TabsTrigger value="history">
+                      <div className="flex flex-col items-center gap-1">
+                        <Receipt className="w-4 h-4" />
+                        <span className="text-xs font-medium">History</span>
+                      </div>
+                    </TabsTrigger>
+                    <TabsTrigger value="test">
+                      <div className="flex flex-col items-center gap-1">
+                        <MessageSquare className="w-4 h-4" />
+                        <span className="text-xs font-medium">MCP Chat</span>
+                      </div>
+                    </TabsTrigger>
+                  </TabsList>
+                </Card>
 
-                  <div className="p-6">
-                    <TabsContent value="overview" className="mt-0 space-y-6">
-                      <div className="space-y-4">
-                        <h3 className="text-lg font-semibold text-primary">
-                          Getting Started with Hedera Portal
-                        </h3>
+                <div className="space-y-6">
+                  <TabsContent value="overview" className="mt-0 space-y-6">
+                    <div className="space-y-4">
+                      <h3 className="text-lg font-semibold text-primary">
+                        Getting Started with Hedera AI Studio
+                      </h3>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <Card
-                            className="hashscan-card hover:border-accent transition-colors cursor-pointer"
-                            onClick={() => setActiveTab('buy')}
-                          >
-                            <CardHeader className="pb-4">
-                              <div className="flex items-start justify-between">
-                                <div className="space-y-1">
-                                  <CardTitle className="text-base">
-                                    Buy Credits
-                                  </CardTitle>
-                                  <CardDescription className="text-sm">
-                                    Purchase credits to start using Hedera
-                                    services
-                                  </CardDescription>
-                                </div>
-                                <ArrowRight className="w-5 h-5 text-secondary" />
-                              </div>
-                            </CardHeader>
-                          </Card>
-
-                          <Card
-                            className="hashscan-card hover:border-accent transition-colors cursor-pointer"
-                            onClick={() => setActiveTab('test')}
-                          >
-                            <CardHeader className="pb-4">
-                              <div className="flex items-start justify-between">
-                                <div className="space-y-1">
-                                  <CardTitle className="text-base">
-                                    Test Transactions
-                                  </CardTitle>
-                                  <CardDescription className="text-sm">
-                                    Try out Hedera operations in our test lab
-                                  </CardDescription>
-                                </div>
-                                <ArrowRight className="w-5 h-5 text-secondary" />
-                              </div>
-                            </CardHeader>
-                          </Card>
-                        </div>
-
-                        <Card className="hashscan-card">
-                          <CardHeader className="pb-3">
-                            <div className="flex items-start gap-3">
-                              <HelpCircle className="w-5 h-5 text-secondary" />
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Card
+                          className="hover:border-accent transition-colors cursor-pointer"
+                          onClick={() => setActiveTab('buy')}
+                        >
+                          <CardHeader className="pb-4">
+                            <div className="flex items-start justify-between">
                               <div className="space-y-1">
                                 <CardTitle className="text-base">
-                                  What are Credits?
+                                  Buy Credits
                                 </CardTitle>
                                 <CardDescription className="text-sm">
-                                  Credits are used to pay for operations on the
-                                  Hedera network through our MCP server. 1
-                                  credit = $0.001 USD. Different operations cost
-                                  different amounts of credits.
+                                  Purchase credits to start using Hedera
+                                  services
                                 </CardDescription>
                               </div>
+                              <ArrowRight className="w-5 h-5 text-secondary" />
                             </div>
                           </CardHeader>
                         </Card>
 
-                        <BearerTokenDisplay />
-
-                        <div className="space-y-3">
-                          <h4 className="text-sm font-medium text-primary">
-                            Common Operations & Costs
-                          </h4>
-                          <OperationPricing />
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="buy" className="mt-0">
-                      <CreditPurchase />
-                    </TabsContent>
-
-                    <TabsContent value="history" className="mt-0">
-                      <CreditHistory />
-                    </TabsContent>
-
-                    <TabsContent value="test" className="mt-0">
-                      <div className="space-y-4">
-                        <Card className="hashscan-card">
-                          <CardContent className="pt-6">
-                            <div className="flex items-start gap-3">
-                              <Info className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
+                        <Card
+                          className="hover:border-accent transition-colors cursor-pointer"
+                          onClick={() => setActiveTab('test')}
+                        >
+                          <CardHeader className="pb-4">
+                            <div className="flex items-start justify-between">
                               <div className="space-y-1">
-                                <p className="text-sm font-medium text-primary">
-                                  Chat with MCP Server
-                                </p>
-                                <p className="text-sm text-secondary">
-                                  Select a tool from the buttons, then type your
-                                  request naturally to interact with your MCP server. For example:
-                                </p>
-                                <ul className="text-sm text-secondary space-y-1 mt-2">
-                                  <li className="flex items-start gap-2">
-                                    <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                    <span>
-                                      &quot;Transfer 5 HBAR to 0.0.1234&quot;
-                                    </span>
-                                  </li>
-                                  <li className="flex items-start gap-2">
-                                    <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                    <span>
-                                      &quot;Create a token called TestCoin&quot;
-                                    </span>
-                                  </li>
-                                  <li className="flex items-start gap-2">
-                                    <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
-                                    <span>&quot;Check my balance&quot;</span>
-                                  </li>
-                                </ul>
+                                <CardTitle className="text-base">
+                                  Test Transactions
+                                </CardTitle>
+                                <CardDescription className="text-sm">
+                                  Try out Hedera operations in our test lab
+                                </CardDescription>
                               </div>
+                              <ArrowRight className="w-5 h-5 text-secondary" />
                             </div>
-                          </CardContent>
+                          </CardHeader>
                         </Card>
-                        <TestChat />
                       </div>
-                    </TabsContent>
-                  </div>
-                </Tabs>
-              </Card>
 
-              <Card className="hashscan-card">
+                      <Card>
+                        <CardHeader className="pb-3">
+                          <div className="flex items-start gap-3">
+                            <HelpCircle className="w-5 h-5 text-secondary" />
+                            <div className="space-y-1">
+                              <CardTitle className="text-base">
+                                What are Credits?
+                              </CardTitle>
+                              <CardDescription className="text-sm">
+                                Credits are used to pay for operations on the
+                                Hedera network through our MCP server. 1 credit
+                                = $0.001 USD. Different operations cost
+                                different amounts of credits.
+                              </CardDescription>
+                            </div>
+                          </div>
+                        </CardHeader>
+                      </Card>
+
+                      <BearerTokenDisplay />
+
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-medium text-primary">
+                          Common Operations & Costs
+                        </h4>
+                        <OperationPricing />
+                      </div>
+                    </div>
+                  </TabsContent>
+
+                  <TabsContent value="buy" className="mt-0">
+                    <CreditPurchase />
+                  </TabsContent>
+
+                  <TabsContent value="history" className="mt-0">
+                    <CreditHistory />
+                  </TabsContent>
+
+                  <TabsContent value="test" className="mt-0">
+                    <div className="space-y-4">
+                      <Card>
+                        <CardContent className="pt-6">
+                          <div className="flex items-start gap-3">
+                            <Info className="w-5 h-5 text-secondary flex-shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                              <p className="text-sm font-medium text-primary">
+                                Chat with MCP Server
+                              </p>
+                              <p className="text-sm text-secondary">
+                                Select a tool from the buttons, then type your
+                                request naturally to interact with your MCP
+                                server. For example:
+                              </p>
+                              <ul className="text-sm text-secondary space-y-1 mt-2">
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  <span>
+                                    &quot;Transfer 5 HBAR to 0.0.1234&quot;
+                                  </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  <span>
+                                    &quot;Create a token called TestCoin&quot;
+                                  </span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                  <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                  <span>&quot;Check my balance&quot;</span>
+                                </li>
+                              </ul>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <TestChat />
+                    </div>
+                  </TabsContent>
+                </div>
+              </Tabs>
+
+              <Card>
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm font-medium text-primary">

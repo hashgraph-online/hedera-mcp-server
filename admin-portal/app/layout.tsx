@@ -73,7 +73,7 @@ const styreneA = localFont({
 
 export const metadata: Metadata = {
   title: "Hedera AI Studio",
-  description: "Manage your Hedera server credits and balance",
+  description: "Build and deploy AI agents on Hedera - OpenConvAI, ElizaOS, MCP Server Tools",
 };
 
 /**

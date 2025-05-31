@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from './AuthProvider';
-import { getApiClient } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -180,7 +179,7 @@ interface ApiKeyManagerProps {
  * Allows users to view their API keys, rotate them, and revoke them
  */
 export function ApiKeyManager({}: ApiKeyManagerProps) {
-  const { isConnected, user, apiKey } = useAuth();
+  const { isConnected, user, apiKey, mcpAuthClient } = useAuth();
   const [keys, setKeys] = useState<ApiKeyInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -205,8 +204,11 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
     setError(null);
 
     try {
-      const apiClient = getApiClient();
-      const keyList = await apiClient.getApiKey();
+      if (!mcpAuthClient) {
+        throw new Error('MCP auth client not available');
+      }
+      
+      const keyList = await mcpAuthClient.listApiKeys();
 
       if (keyList && Array.isArray(keyList)) {
         setKeys(keyList);
@@ -228,7 +230,11 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
     setError(null);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!mcpAuthClient) {
+        throw new Error('MCP auth client not available');
+      }
+      
+      await mcpAuthClient.rotateApiKeyById(keyId);
       await loadApiKeys();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to rotate API key');
@@ -248,7 +254,11 @@ export function ApiKeyManager({}: ApiKeyManagerProps) {
     setError(null);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      if (!mcpAuthClient) {
+        throw new Error('MCP auth client not available');
+      }
+      
+      await mcpAuthClient.revokeApiKey(keyToRevoke);
       await loadApiKeys();
       setShowRevokeDialog(false);
       setKeyToRevoke(null);

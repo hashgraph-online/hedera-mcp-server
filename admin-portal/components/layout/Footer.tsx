@@ -16,7 +16,7 @@ export function Footer({}: FooterProps) {
 
   useEffect(() => {
     setMounted(true);
-    
+
     const checkTheme = () => {
       setIsDark(document.documentElement.classList.contains('dark'));
     };
@@ -26,7 +26,7 @@ export function Footer({}: FooterProps) {
     const observer = new MutationObserver(checkTheme);
     observer.observe(document.documentElement, {
       attributes: true,
-      attributeFilter: ['class']
+      attributeFilter: ['class'],
     });
 
     return () => observer.disconnect();
@@ -37,7 +37,7 @@ export function Footer({}: FooterProps) {
   }
 
   return (
-    <footer className="mt-auto border-t border-border bg-background">
+    <footer className="bg-white mt-auto border-t border-border">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="py-8 flex flex-col items-center justify-center space-y-4">
           <div className="flex items-center space-x-6">
@@ -50,7 +50,11 @@ export function Footer({}: FooterProps) {
             />
             <div className="h-6 w-px bg-border" />
             <Image
-              src={isDark ? '/built-on-hedera-dark.svg' : '/built-on-hedera-light.svg'}
+              src={
+                isDark
+                  ? '/built-on-hedera-dark.svg'
+                  : '/built-on-hedera-light.svg'
+              }
               alt="Built on Hedera"
               width={89}
               height={40}

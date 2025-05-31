@@ -45,7 +45,6 @@ export async function startTestServer(options?: {
     ...process.env,
     PORT: String(port),
     FASTMCP_PORT: String(port),
-    HTTP_API_PORT: String(port + 1),
     AUTH_API_PORT: String(port + 2),
     NODE_ENV: 'test',
     LOG_LEVEL: 'error',
@@ -97,22 +96,17 @@ export async function startTestServer(options?: {
     throw error;
   }
 
-  const baseUrl = `http://localhost:${port + 1}`;
+  const baseUrl = `http://localhost:${port}`;
   const streamUrl = `http://localhost:${port}/stream`;
-  const httpApiUrl = `http://localhost:${port + 1}/api/health`;
   logger.info('Server ports configured', {
     fastmcpPort: port,
-    httpApiPort: port + 1,
     authApiPort: port + 2,
     streamUrl,
-    httpApiUrl,
   });
 
   await new Promise(resolve => setTimeout(resolve, 3000));
 
   const waitPromises = [];
-
-  waitPromises.push(waitForHttpApi(httpApiUrl, 30000));
 
   const requireAuth = testEnv.REQUIRE_AUTH === 'true';
   waitPromises.push(waitForServer(streamUrl, 30000, requireAuth));
@@ -155,36 +149,6 @@ export async function startTestServer(options?: {
   return testServer;
 }
 
-/**
- * Waits for the server to be ready to accept requests
- */
-async function waitForHttpApi(
-  healthUrl: string,
-  timeout = 30000,
-): Promise<void> {
-  const logger = Logger.getInstance({
-    module: 'wait-http-api',
-    level: 'error',
-  });
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeout) {
-    try {
-      const response = await fetch(healthUrl);
-      if (response.ok) {
-        const data = await response.json();
-        if (data.status === 'ok') {
-          logger.info('HTTP API is ready');
-          return;
-        }
-      }
-    } catch (error) {
-    }
-    await new Promise(resolve => setTimeout(resolve, 1000));
-  }
-
-  throw new Error(`HTTP API did not become ready within ${timeout}ms`);
-}
 
 async function waitForServer(
   streamUrl: string,
@@ -277,11 +241,7 @@ export async function callServerTool(
     }, 30000);
 
     try {
-      const streamUrl =
-        baseUrl.replace(/(\d+)$/, port => {
-          const newPort = parseInt(port) - 1;
-          return newPort.toString();
-        }) + '/stream';
+      const streamUrl = baseUrl + '/stream';
 
       const requestInit: RequestInit = {};
       if (apiKey) {
@@ -362,30 +322,6 @@ export async function callServerTool(
   });
 }
 
-/**
- * Calls server tool via HTTP API instead of MCP (for authenticated calls)
- */
-export async function callServerToolHTTP(
-  baseUrl: string,
-  toolName: string,
-  args: Record<string, any> = {},
-  apiKey?: string,
-): Promise<any> {
-  const response = await fetch(`${baseUrl}/api/tools/${toolName}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-    },
-    body: JSON.stringify(args),
-  });
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-  }
-
-  return await response.json();
-}
 
 /**
  * Creates an API key for testing by connecting to the server's database

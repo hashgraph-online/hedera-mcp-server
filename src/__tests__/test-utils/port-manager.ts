@@ -25,15 +25,17 @@ export class PortManager {
     }
     return port;
   }
-  
+
   /**
    * Check if a port is potentially in use
    */
   private static isPortInUse(port: number): boolean {
-    const reservedPorts = [3000, 3001, 3002, 8080, 8081];
-    return reservedPorts.includes(port) || 
-           (port >= 3000 && port <= 3010) || 
-           (port >= 8080 && port <= 8090);
+    const reservedPorts = [3000, 3001, 8080, 8081];
+    return (
+      reservedPorts.includes(port) ||
+      (port >= 3000 && port <= 3010) ||
+      (port >= 8080 && port <= 8090)
+    );
   }
 
   /**

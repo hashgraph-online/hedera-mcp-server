@@ -13,14 +13,17 @@ import type { ServerConfig } from '../config/server-config';
 import { ProfileManager } from '../profile/profile-manager';
 import { CreditManagerFactory } from '../db/credit-manager-factory';
 import type { CreditManagerBase } from '../db/credit-manager-base';
-import { HttpApiServer } from './http-api';
 import { createPaymentTools } from '../tools/mcp-payment-tools';
+import { createRequestAuthChallengeTool } from '../tools/request-auth-challenge';
+import { createVerifyAuthSignatureTool } from '../tools/verify-auth-signature';
+import { createGetApiKeysTool } from '../tools/get-api-keys';
+import { createRotateApiKeyTool } from '../tools/rotate-api-key';
+import { createRevokeApiKeyTool } from '../tools/revoke-api-key';
 import { PaymentTools } from '../tools/payment-tools';
 import { ApiKeyService } from '../auth/api-key-service';
 import { ChallengeService } from '../auth/challenge-service';
 import { SignatureService } from '../auth/signature-service';
 import { MCPAuthMiddleware } from '../auth/mcp-auth-middleware';
-import { createAuthRoutes } from '../auth/auth-endpoints';
 import { AnomalyDetector } from '../auth/anomaly-detector';
 import { AuditLogger } from '../auth/audit-logger';
 import { metricsCollector } from '../auth/metrics-collector';
@@ -35,7 +38,6 @@ export class HederaMCPServer {
   protected conversationalAgent: HederaConversationalAgent | null = null;
   protected profileManager: ProfileManager | null = null;
   protected creditManager: CreditManagerBase | null = null;
-  protected httpApiServer: HttpApiServer | null = null;
   protected logger: Logger;
   protected isInitialized = false;
   protected apiKeyService: ApiKeyService | null = null;
@@ -43,7 +45,6 @@ export class HederaMCPServer {
   private authDb: any = null;
   private challengeService: ChallengeService | null = null;
   private signatureService: SignatureService | null = null;
-  private authMiddleware: MCPAuthMiddleware | null = null;
   private anomalyDetector: AnomalyDetector | null = null;
   private auditLogger: AuditLogger | null = null;
   private authApp: express.Express | null = null;
@@ -121,16 +122,6 @@ export class HederaMCPServer {
         this.logger,
       );
 
-      if (
-        process.env.NODE_ENV === 'test' &&
-        this.config.DATABASE_URL.startsWith('sqlite://')
-      ) {
-        const { setupTestDatabase } = await import(
-          '../__tests__/test-db-setup'
-        );
-        await setupTestDatabase(this.config.DATABASE_URL, this.logger);
-      }
-
       this.creditManager = await CreditManagerFactory.create(
         this.config,
         this.hederaKit,
@@ -193,13 +184,12 @@ export class HederaMCPServer {
             parameters: z.object(zodSchema),
             execute: async (params, context) => {
               try {
-                this.logger.debug('new request', context, params);
+                this.logger.info('new request', context, params);
                 const authenticatedAccountId = (context as any).accountId;
                 if (!authenticatedAccountId) {
-                  return JSON.stringify({
-                    error: 'Authentication required for payment operations',
-                    tool: tool.name,
-                    status: 'unauthorized',
+                  this.logger.warn('No authenticated account ID found', {
+                    params,
+                    context,
                   });
                 }
 
@@ -224,14 +214,6 @@ export class HederaMCPServer {
             },
           });
         });
-      }
-
-      if (this.creditManager) {
-        this.httpApiServer = new HttpApiServer(
-          this.creditManager,
-          this.config,
-          this.logger,
-        );
       }
 
       if (this.config.ENABLE_HCS10) {
@@ -309,34 +291,17 @@ export class HederaMCPServer {
       this.anomalyDetector || undefined,
     );
 
-    this.setupAuthEndpoints();
+    this.setupMetricsEndpoint();
 
     this.logger.info('Authentication services initialized');
   }
 
   /**
-   * Setup authentication endpoints
+   * Setup metrics endpoint
    */
-  private setupAuthEndpoints(): void {
-    if (
-      !this.challengeService ||
-      !this.signatureService ||
-      !this.apiKeyService
-    ) {
-      return;
-    }
-
+  private setupMetricsEndpoint(): void {
     this.authApp = express();
     this.authApp.use(cors());
-    this.authApp.use(express.json());
-
-    const authRoutes = createAuthRoutes(
-      this.challengeService,
-      this.signatureService,
-      this.apiKeyService,
-    );
-
-    this.authApp.use(authRoutes);
 
     this.authApp.get('/metrics', async (_, res) => {
       const metrics = await metricsCollector.getMetrics();
@@ -346,42 +311,42 @@ export class HederaMCPServer {
   }
 
   /**
-   * Start the auth API server
+   * Start the metrics server
    */
-  private async startAuthServer(): Promise<void> {
+  private async startMetricsServer(): Promise<void> {
     if (!this.authApp || this.authServer) {
       return;
     }
 
-    const authPort = this.config.AUTH_API_PORT || 3003;
+    const metricsPort = this.config.METRICS_PORT || 3003;
 
     if (process.env.NODE_ENV === 'test') {
-      this.logger.info('Skipping auth server in test mode');
+      this.logger.info('Skipping metrics server in test mode');
       return;
     }
 
-    if (process.env.SKIP_AUTH_SERVER === 'true') {
-      this.logger.info('Skipping auth server as requested');
+    if (process.env.SKIP_METRICS_SERVER === 'true') {
+      this.logger.info('Skipping metrics server as requested');
       return;
     }
 
     return new Promise((resolve, reject) => {
-      this.authServer = this.authApp!.listen(authPort, () => {
-        this.logger.info(`Auth API server listening on port ${authPort}`);
+      this.authServer = this.authApp!.listen(metricsPort, () => {
+        this.logger.info(`Metrics server listening on port ${metricsPort}`);
         this.logger.info(
-          `Auth endpoints available at http://localhost:${authPort}`,
+          `Metrics endpoint available at http://localhost:${metricsPort}/metrics`,
         );
         resolve();
       }).on('error', (error: any) => {
         if (error.code === 'EADDRINUSE') {
           this.logger.warn(
-            `Port ${authPort} is already in use, skipping auth server. Auth may be handled by another service.`,
+            `Port ${metricsPort} is already in use, skipping metrics server.`,
           );
 
           this.authServer = null;
           resolve();
         } else {
-          this.logger.error('Failed to start auth server', { error });
+          this.logger.error('Failed to start metrics server', { error });
           reject(error);
         }
       });
@@ -1262,7 +1227,8 @@ export class HederaMCPServer {
 
     this.mcp.addTool({
       name: 'get_pricing_configuration',
-      description: 'Gets pricing configuration including operation costs, tiers, and modifiers',
+      description:
+        'Gets pricing configuration including operation costs, tiers, and modifiers',
       parameters: z.object({}),
       execute: async () => {
         if (!this.creditManager) {
@@ -1270,7 +1236,7 @@ export class HederaMCPServer {
             error: 'Credit system not initialized',
             operations: {},
             tiers: [],
-            modifiers: {}
+            modifiers: {},
           });
         }
 
@@ -1289,11 +1255,97 @@ export class HederaMCPServer {
             error: 'Failed to get pricing configuration',
             operations: {},
             tiers: [],
-            modifiers: {}
+            modifiers: {},
           });
         }
       },
     });
+
+    this.mcp.addTool({
+      name: 'execute_query',
+      description:
+        'Execute read-only queries on Hedera network (account info, balances, tokens, NFTs, etc.)',
+      parameters: z.object({
+        request: z
+          .string()
+          .describe(
+            'Natural language query request (e.g., "What is my HBAR balance?", "Show me my NFTs", "Get token info for 0.0.123456")',
+          ),
+      }),
+      execute: async (params: { request: string }, context: any) => {
+        const authenticatedAccountId =
+          context.auth?.accountId ||
+          context.accountId ||
+          context.session?.accountId ||
+          context.session?.auth?.accountId;
+        if (!authenticatedAccountId) {
+          return JSON.stringify({
+            operation: 'execute_query',
+            error: 'Authentication required',
+            status: 'unauthorized',
+          });
+        }
+
+        try {
+          this.logger.info('Processing query request', {
+            request: params.request,
+            accountId: authenticatedAccountId,
+          });
+
+          const result = await this.conversationalAgent!.processMessage(
+            params.request,
+          );
+
+          this.logger.info('Query completed', {
+            success: result && result.success !== false,
+          });
+
+          return JSON.stringify({
+            operation: 'execute_query',
+            result: result,
+            message: result?.message || result?.output || 'Query processed',
+            status: result && result.success !== false ? 'completed' : 'failed',
+          });
+        } catch (error: unknown) {
+          const errorMessage =
+            error instanceof Error ? error.message : 'Unknown error';
+          this.logger.error('Query execution failed', {
+            error: errorMessage,
+            request: params.request,
+          });
+          return JSON.stringify({
+            operation: 'execute_query',
+            error: errorMessage,
+            status: 'failed',
+          });
+        }
+      },
+    });
+
+    if (this.config.REQUIRE_AUTH) {
+      const authTools = [
+        createRequestAuthChallengeTool(this.challengeService, this.logger),
+        createVerifyAuthSignatureTool(
+          this.challengeService,
+          this.signatureService,
+          this.apiKeyService,
+          this.logger,
+        ),
+        createGetApiKeysTool(this.apiKeyService, this.logger),
+        createRotateApiKeyTool(this.apiKeyService, this.logger),
+        createRevokeApiKeyTool(this.apiKeyService, this.logger),
+      ];
+
+      authTools.forEach(tool => {
+        this.logger.info(`Registering auth tool: ${tool.name}`);
+        this.mcp!.addTool({
+          name: tool.name,
+          description: tool.description,
+          parameters: tool.parameters,
+          execute: tool.execute,
+        });
+      });
+    }
   }
 
   /**
@@ -1539,9 +1591,7 @@ export class HederaMCPServer {
       } else if (!isInteractive && this.config.MCP_TRANSPORT === 'both') {
         try {
           await this.mcp.start({ transportType: 'stdio' });
-          this.logger.info(
-            'FastMCP stdio server started (use HTTP API on port 3002 for web)',
-          );
+          this.logger.info('FastMCP stdio server started');
         } catch (bothError) {
           this.logger.error('FastMCP both transport start error', {
             error: bothError,
@@ -1552,9 +1602,7 @@ export class HederaMCPServer {
         this.logger.warn(
           'Running interactively with stdio transport - this will block!',
         );
-        this.logger.info(
-          'Skipping FastMCP stdio to prevent blocking. Use HTTP API on port 3002',
-        );
+        this.logger.info('Skipping FastMCP stdio to prevent blocking');
         this.logger.info(
           'To use FastMCP, set MCP_TRANSPORT=http or run without TTY',
         );
@@ -1571,33 +1619,14 @@ export class HederaMCPServer {
         port: process.env.FASTMCP_PORT || '3000',
       });
       this.logger.info(
-        'Continuing without FastMCP - use HTTP API on port 3002',
+        'Continuing without FastMCP - MCP tools still available',
       );
     }
 
     this.logger.info('FastMCP server started successfully');
 
-    if (this.httpApiServer) {
-      const httpPort = parseInt(process.env.HTTP_API_PORT || '3002');
-      try {
-        await this.httpApiServer.start(httpPort);
-        this.logger.info(
-          `HTTP API server started successfully on port ${httpPort}`,
-        );
-      } catch (httpError) {
-        this.logger.error('Failed to start HTTP API server', {
-          error: httpError,
-          message:
-            httpError instanceof Error ? httpError.message : String(httpError),
-          stack: httpError instanceof Error ? httpError.stack : undefined,
-          port: httpPort,
-        });
-        throw httpError;
-      }
-    }
-
     if (this.config.REQUIRE_AUTH) {
-      await this.startAuthServer();
+      await this.startMetricsServer();
 
       await this.updateMetrics();
       setInterval(() => this.updateMetrics(), 60000);
@@ -1632,7 +1661,7 @@ export class HederaMCPServer {
     if (this.authServer) {
       await new Promise<void>(resolve => {
         this.authServer.close(() => {
-          this.logger.info('Auth server stopped');
+          this.logger.info('Metrics server stopped');
           resolve();
         });
       });
@@ -1645,10 +1674,6 @@ export class HederaMCPServer {
 
     if (this.auditLogger) {
       await this.auditLogger.close();
-    }
-
-    if (this.httpApiServer) {
-      await this.httpApiServer.stop();
     }
 
     if (this.mcp) {
@@ -1696,6 +1721,11 @@ export class HederaMCPServer {
       {
         name: 'refresh_profile',
         description: 'Refresh server HCS-11 profile and registration status',
+      },
+      {
+        name: 'execute_query',
+        description:
+          'Execute read-only queries on Hedera network (account info, balances, tokens, NFTs, etc.)',
       },
     ];
   }

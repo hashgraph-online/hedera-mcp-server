@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { CREDIT_PACKAGES } from '@/lib/constants/config';
 import { getMCPClient } from '@/lib/mcp-client';
-import { Loader2, RefreshCw, Calculator } from 'lucide-react';
+import { Loader2, RefreshCw, Calculator, CheckCircle2 } from 'lucide-react';
 import { Transaction } from '@hashgraph/sdk';
 import { Logger } from '@hashgraphonline/standards-sdk';
 import {
@@ -218,8 +218,6 @@ export function CreditPurchase() {
         return;
       }
 
-      mcpClient.setApiKey(apiKey);
-
       const paymentData = await mcpClient.createPaymentTransaction(
         user.accountId,
         hbarAmount,
@@ -419,16 +417,21 @@ export function CreditPurchase() {
                         setCustomAmount('');
                         setCustomHbar('');
                       }}
-                      className={`p-4 rounded-lg border transition-colors text-left ${
+                      className={`p-4 rounded-lg border transition-all text-left transform ${
                         selectedPackage === pkg && !isCustom
-                          ? 'border-primary bg-primary/5'
-                          : 'border-border hover:border-primary/50'
+                          ? 'border-primary border-2 bg-primary/10 shadow-md ring-2 ring-primary/20 scale-[1.02]'
+                          : 'border-border hover:border-primary/50 hover:bg-muted/30 hover:shadow-sm'
                       }`}
                       disabled={isPurchasing}
                     >
                       <div className="space-y-2">
                         <div className="flex justify-between items-start">
-                          <h3 className="font-semibold">{pkg.label}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-semibold">{pkg.label}</h3>
+                            {selectedPackage === pkg && !isCustom && (
+                              <CheckCircle2 className="w-4 h-4 text-primary" />
+                            )}
+                          </div>
                           {pkg.savings !== '0%' && (
                             <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded">
                               Save {pkg.savings}

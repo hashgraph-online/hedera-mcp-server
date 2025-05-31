@@ -19,6 +19,8 @@ const badgeVariants = cva(
         info:
           "bg-tertiary text-secondary",
         outline: "border border-primary text-primary",
+        connected: "border-hedera-green text-hedera-green bg-hedera-green/5 backdrop-blur-sm font-bold px-3 py-1",
+        disconnected: "border-red-500 text-red-500 bg-red-500/5 backdrop-blur-sm font-bold px-3 py-1",
       },
     },
     defaultVariants: {

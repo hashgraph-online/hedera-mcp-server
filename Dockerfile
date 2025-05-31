@@ -100,7 +100,7 @@ COPY --chown=nodejs:nodejs docker/healthcheck.sh ./healthcheck.sh
 RUN chmod +x ./healthcheck.sh
 
 USER nodejs
-EXPOSE 3000 3001 3002
+EXPOSE 3000 3001
 
 # Single process manager for both apps
 ENTRYPOINT ["dumb-init", "--"]
@@ -147,7 +147,7 @@ EOF
 RUN chmod +x /app/dev.sh
 
 USER nodejs
-EXPOSE 3000 3001 3002 9229
+EXPOSE 3000 3001 9229
 
 CMD ["/app/dev.sh"]
 

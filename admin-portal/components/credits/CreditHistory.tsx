@@ -84,7 +84,7 @@ export function CreditHistory() {
 
   if (isLoading) {
     return (
-      <Card className="bg-card border border-hedera-purple/10 shadow-lg">
+      <Card className=" border border-hedera-purple/10 shadow-lg">
         <CardHeader>
           <CardTitle className="text-xl font-black hedera-gradient-text">
             Transaction History
@@ -102,7 +102,7 @@ export function CreditHistory() {
 
   if (error) {
     return (
-      <Card className="bg-card border border-hedera-purple/10 shadow-lg">
+      <Card className=" border border-hedera-purple/10 shadow-lg">
         <CardHeader>
           <CardTitle className="text-xl font-black hedera-gradient-text">
             Transaction History
@@ -119,7 +119,7 @@ export function CreditHistory() {
   }
 
   return (
-    <Card className="bg-card border border-hedera-purple/10 shadow-lg hover:shadow-xl transition-shadow duration-300">
+    <Card className=" border border-hedera-purple/10 shadow-lg hover:shadow-xl transition-shadow duration-300">
       <CardHeader>
         <CardTitle className="text-xl font-black hedera-gradient-text">
           Transaction History

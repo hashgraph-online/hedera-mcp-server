@@ -9,15 +9,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "hashscan-button uppercase",
+        default: "bg-hedera-purple text-white rounded-full uppercase hover:opacity-90 px-6 py-2 font-medium text-sm",
         destructive:
-          "bg-red-600 text-white rounded-full hover:opacity-90",
+          "bg-red text-white rounded-full hover:opacity-90",
         outline:
-          "border border-gray-300 dark:border-gray-700 bg-transparent rounded-md hover:bg-gray-100 dark:hover:bg-gray-800",
+          "border border-primary bg-transparent rounded-md hover:bg-tertiary",
         secondary:
-          "bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-md hover:bg-gray-200 dark:hover:bg-gray-700",
-        ghost: "rounded-md hover:bg-gray-100 dark:hover:bg-gray-800",
-        link: "text-blue-600 dark:text-blue-400 underline-offset-4 hover:opacity-80",
+          "bg-tertiary text-primary rounded-md hover:bg-muted",
+        ghost: "rounded-md hover:bg-tertiary",
+        link: "text-hedera-blue underline-offset-4 hover:opacity-80",
+        send: "bg-hedera-purple text-white rounded-xl hover:bg-hedera-purple/90 shadow-md hover:shadow-lg transition-all duration-200",
       },
       size: {
         default: "h-9 px-5 text-sm",

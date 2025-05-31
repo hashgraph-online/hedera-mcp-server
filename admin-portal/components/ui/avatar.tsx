@@ -5,15 +5,30 @@ import * as AvatarPrimitive from "@radix-ui/react-avatar"
 
 import { cn } from "@/lib/utils"
 
+interface AvatarProps extends React.ComponentProps<typeof AvatarPrimitive.Root> {
+  size?: 'sm' | 'md' | 'lg';
+  hasRing?: boolean;
+}
+
 function Avatar({
   className,
+  size = 'md',
+  hasRing = false,
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Root>) {
+}: AvatarProps) {
+  const sizeClasses = {
+    sm: 'size-8',
+    md: 'size-8 sm:size-10',
+    lg: 'size-10 sm:size-12'
+  };
+
   return (
     <AvatarPrimitive.Root
       data-slot="avatar"
       className={cn(
-        "relative flex size-8 shrink-0 overflow-hidden rounded-full",
+        "relative flex shrink-0 overflow-hidden rounded-full",
+        sizeClasses[size],
+        hasRing && "ring-2 ring-white dark:ring-gray-900 shadow-lg",
         className
       )}
       {...props}
@@ -34,15 +49,28 @@ function AvatarImage({
   )
 }
 
+interface AvatarFallbackProps extends React.ComponentProps<typeof AvatarPrimitive.Fallback> {
+  gradient?: 'system' | 'assistant' | 'user' | 'none';
+}
+
 function AvatarFallback({
   className,
+  gradient = 'none',
   ...props
-}: React.ComponentProps<typeof AvatarPrimitive.Fallback>) {
+}: AvatarFallbackProps) {
+  const gradientClasses = {
+    system: 'bg-gradient-to-br from-hedera-purple via-hedera-blue to-hedera-purple text-white',
+    assistant: 'bg-gradient-to-br from-hedera-blue to-hedera-green text-white',
+    user: 'bg-gradient-to-br from-gray-600 to-gray-800 dark:from-gray-700 dark:to-gray-900 text-white',
+    none: 'bg-muted'
+  };
+
   return (
     <AvatarPrimitive.Fallback
       data-slot="avatar-fallback"
       className={cn(
-        "bg-muted flex size-full items-center justify-center rounded-full",
+        "flex size-full items-center justify-center rounded-full font-bold",
+        gradientClasses[gradient],
         className
       )}
       {...props}
