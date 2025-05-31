@@ -686,30 +686,11 @@ _Note: All authentication operations (requesting challenges, verifying signature
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for detailed guidelines.
-
-### Quick Contribution Guide
-
-1.  **Fork** the repository.
-2.  **Create** your feature branch: `git checkout -b feature/my-new-feature`.
-3.  **Implement** your changes following project coding standards.
-4.  **Add tests** (unit, integration) for your changes.
-5.  **Ensure all tests pass**: `npm test` (and `npm run test:integration` if applicable).
-6.  **Lint and format**: `npm run lint` and `npm run format`.
-7.  **Commit** your changes: `git commit -m 'feat: Add some amazing feature'`. (Consider Conventional Commits).
-8.  **Push** to the branch: `git push origin feature/my-new-feature`.
-9.  Create a new **Pull Request** against the `main` or relevant development branch.
-
-### Development Standards
--   JSDoc comments for all public functions and complex logic.
--   TypeScript strict mode utilized.
--   Comprehensive tests for new features and bug fixes.
--   Drizzle ORM for database interactions; schema in `src/db/schema.ts`.
--   Adherence to ESLint and Prettier configurations (run `npm run lint -- --fix` and `npm run format`).
+We welcome contributions! Please see the [CONTRIBUTING.md](./CONTRIBUTING.md) file for detailed guidelines on how to contribute to this project, including development standards, testing procedures, and how to submit pull requests.
 
 ## 📄 License
 
-MIT License - see the [LICENSE](./LICENSE) file for details.
+This project is licensed under the Apache License 2.0. See the [LICENSE](./LICENSE) file for details, or view the full license text at [http://www.apache.org/licenses/LICENSE-2.0](http://www.apache.org/licenses/LICENSE-2.0).
 
 ## 🔗 Links
 
